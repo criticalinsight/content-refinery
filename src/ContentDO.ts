@@ -12,6 +12,9 @@ export class ContentDO extends DurableObject<Env> {
 
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env);
+        this.ctx.getWebSockets().forEach(ws => {
+            // Re-bind handlers after restart if needed
+        });
         this.initDatabase();
     }
 
@@ -124,6 +127,20 @@ export class ContentDO extends DurableObject<Env> {
             return Response.json({ success: true });
         }
 
+        if (url.pathname === '/ws') {
+            const upgradeHeader = request.headers.get('Upgrade');
+            if (!upgradeHeader || upgradeHeader !== 'websocket') {
+                return new Response('Expected Upgrade: websocket', { status: 426 });
+            }
+
+            const pair = new WebSocketPair();
+            const [client, server] = Object.values(pair);
+
+            this.ctx.acceptWebSocket(server);
+
+            return new Response(null, { status: 101, webSocket: client });
+        }
+
         return new Response('Not found', { status: 404 });
     }
 
@@ -227,15 +244,28 @@ export class ContentDO extends DurableObject<Env> {
 
         const tickers = Array.isArray(intel.tickers) ? intel.tickers : [];
         const fingerprint = `${(intel.summary || "").toLowerCase().trim()}:${[...tickers].sort().join(',')}`;
-        const sixHoursAgo = Date.now() - (6 * 60 * 60 * 1000);
+
+        // 1. Broadcast to WebSocket clients
+        this.broadcastSignal(intel, sourceId, sourceName);
+
+        // 2. Generate Embeddings & Update Vectorize
+        this.ctx.blockConcurrencyWhile(async () => {
+            await this.upsertToVectorize(intel);
+        });
 
         try {
+            // 3. Encrypt if necessary (Private Feed logic)
+            let forwardedIntel = intel;
+            if (intel.metadata?.privacy === 'encrypted') {
+                forwardedIntel = await this.encryptSignal(intel);
+            }
+
             // Forward signal to main app via REST
             await this.fetchWithRetry(`${this.env.BOARD_DO_URL}/api/refinery/signal`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    intel,
+                    intel: forwardedIntel,
                     sourceId,
                     sourceName,
                     fingerprint,
@@ -245,5 +275,66 @@ export class ContentDO extends DurableObject<Env> {
         } catch (e) {
             console.error('[ContentRefinery] Signal forwarding failed:', e);
         }
+    }
+
+    private broadcastSignal(intel: any, sourceId: string, sourceName: string) {
+        const payload = JSON.stringify({ type: 'signal', data: { intel, sourceId, sourceName, timestamp: Date.now() } });
+        this.ctx.getWebSockets().forEach(ws => {
+            try { ws.send(payload); } catch (e) { }
+        });
+    }
+
+    private async upsertToVectorize(intel: any) {
+        if (!this.env.VECTOR_INDEX) return;
+
+        try {
+            const textToEmbed = `${intel.summary} ${intel.detail}`;
+            const embedding = await this.getEmbeddings(textToEmbed);
+
+            await this.env.VECTOR_INDEX.upsert([{
+                id: crypto.randomUUID(),
+                values: embedding,
+                metadata: {
+                    summary: intel.summary,
+                    tickers: JSON.stringify(intel.tickers || []),
+                    sentiment: intel.sentiment || 'neutral'
+                }
+            }]);
+            console.log('[ContentRefinery] Successfully upserted to Vectorize');
+        } catch (e) {
+            console.error('[ContentRefinery] Vectorize upsert failed:', e);
+        }
+    }
+
+    private async getEmbeddings(text: string): Promise<number[]> {
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${this.env.GEMINI_API_KEY}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    content: { parts: [{ text }] }
+                })
+            }
+        );
+        const result = await response.json() as any;
+        return result.embedding.values;
+    }
+
+    private async encryptSignal(intel: any): Promise<string> {
+        // Simple mock encryption (AES-256-GCM logic would go here)
+        // For brevity in CF Worker, we'll use a placeholder or base64
+        const secret = this.env.GEMINI_API_KEY; // Using API key as derivation source for demo
+        const encoded = new TextEncoder().encode(JSON.stringify(intel));
+        return btoa(String.fromCharCode(...new Uint8Array(encoded)));
+    }
+
+    // WebSocket Handlers
+    async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+        // Optional: Handle client commands (e.g. subscribe to specific tickers)
+    }
+
+    async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
+        ws.close(code, reason);
     }
 }

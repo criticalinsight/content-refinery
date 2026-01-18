@@ -18,5 +18,9 @@ enabled = true
 enabled = true
 invocation_logs = true
 
+[[vectorize]]
+binding = "VECTOR_INDEX"
+index_name = "refinery_signals"
+
 # Secrets: GEMINI_API_KEY, TELEGRAM_BOT_TOKEN
 # Set via: wrangler secret put <NAME>

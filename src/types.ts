@@ -1,5 +1,6 @@
 export interface Env {
     CONTENT_DO: DurableObjectNamespace;
+    VECTOR_INDEX: VectorizeIndex;
     GEMINI_API_KEY: string;
     TELEGRAM_BOT_TOKEN: string;
     BOARD_DO_URL?: string; // Phase 24: New URL for the BoardDO service if separate

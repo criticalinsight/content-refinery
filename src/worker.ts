@@ -14,6 +14,11 @@ export default {
         const id = env.CONTENT_DO.idFromName('default');
         const stub = env.CONTENT_DO.get(id);
 
+        // Check for WebSocket upgrade
+        if (request.headers.get('Upgrade') === 'websocket') {
+            return stub.fetch(request);
+        }
+
         // Proxy the request to the Durable Object
         return stub.fetch(request);
     },
