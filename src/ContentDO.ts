@@ -1,5 +1,5 @@
-import { DurableObject } from 'cloudflare:workers';
 import { Env } from './types';
+import { TelegramManager } from './telegram';
 
 interface ChannelConfig {
     id: string; // Telegram Chat ID
@@ -10,12 +10,27 @@ interface ChannelConfig {
 
 export class ContentDO extends DurableObject<Env> {
 
+    private telegram: TelegramManager | null = null;
+
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env);
         this.ctx.getWebSockets().forEach(ws => {
             // Re-bind handlers after restart if needed
         });
         this.initDatabase();
+        this.initTelegram();
+    }
+
+    private async initTelegram() {
+        try {
+            this.telegram = new TelegramManager(this.env);
+            await this.telegram.listen(async (msg) => {
+                await this.handleIngestInternal(msg);
+            });
+            console.log("[ContentRefinery] Live Telegram listener active.");
+        } catch (e) {
+            console.error("[ContentRefinery] Failed to start Telegram listener:", e);
+        }
     }
 
     private initDatabase() {
@@ -146,6 +161,11 @@ export class ContentDO extends DurableObject<Env> {
 
     async handleIngest(request: Request): Promise<Response> {
         const body = await request.json() as any;
+        const id = await this.handleIngestInternal(body);
+        return Response.json({ success: true, id });
+    }
+
+    private async handleIngestInternal(body: any): Promise<string> {
         const id = crypto.randomUUID();
 
         // Auto-register channel
@@ -159,10 +179,8 @@ export class ContentDO extends DurableObject<Env> {
             id, body.chatId, body.title, body.text, Date.now()
         );
 
-        // Note: For Phase 2, we will add a metadata column to SQLite and update this.
-
         await this.ctx.storage.setAlarm(Date.now() + 5000);
-        return Response.json({ success: true, id });
+        return id;
     }
 
     async alarm() {

@@ -3,6 +3,8 @@ export interface Env {
     VECTOR_INDEX: VectorizeIndex;
     GEMINI_API_KEY: string;
     TELEGRAM_BOT_TOKEN: string;
+    TELEGRAM_API_ID: string;
+    TELEGRAM_API_HASH: string;
     BOARD_DO_URL?: string; // Phase 24: New URL for the BoardDO service if separate
 }
 

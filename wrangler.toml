@@ -22,5 +22,8 @@ invocation_logs = true
 binding = "VECTOR_INDEX"
 index_name = "refinery_signals"
 
-# Secrets: GEMINI_API_KEY, TELEGRAM_BOT_TOKEN
+# Secret[vars]
+# TELEGRAM_API_ID = "..." (set via secret)
+# TELEGRAM_API_HASH = "..." (set via secret)
+# GEMINI_API_KEY = "..." (set via secret)
 # Set via: wrangler secret put <NAME>
