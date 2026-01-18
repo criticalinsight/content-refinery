@@ -22,7 +22,7 @@ const App: React.FC = () => {
   const [status, setStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
 
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8787/ws');
+    const ws = new WebSocket('wss://content-refinery.iamkingori.workers.dev/ws');
 
     ws.onopen = () => setStatus('online');
     ws.onclose = () => setStatus('offline');
