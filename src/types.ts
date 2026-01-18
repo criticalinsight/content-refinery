@@ -13,5 +13,8 @@ export interface ContentItem {
     processed_json?: any;
     sentiment?: string;
     is_signal: number;
+    retry_count: number;
+    last_error?: string;
     created_at: number;
+    metadata?: Record<string, any>; // For Phase 2: Tweet IDs, RSS links, etc.
 }

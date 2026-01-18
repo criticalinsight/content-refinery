@@ -35,6 +35,8 @@ export class ContentDO extends DurableObject<Env> {
                 processed_json JSON,
                 sentiment TEXT,
                 is_signal INTEGER DEFAULT 0,
+                retry_count INTEGER DEFAULT 0,
+                last_error TEXT,
                 created_at INTEGER
             );
         `);
@@ -43,6 +45,8 @@ export class ContentDO extends DurableObject<Env> {
         try { this.ctx.storage.sql.exec(`ALTER TABLE channels ADD COLUMN success_count INTEGER DEFAULT 0`); } catch (e) { }
         try { this.ctx.storage.sql.exec(`ALTER TABLE channels ADD COLUMN failure_count INTEGER DEFAULT 0`); } catch (e) { }
         try { this.ctx.storage.sql.exec(`ALTER TABLE channels ADD COLUMN last_ingested_at INTEGER`); } catch (e) { }
+        try { this.ctx.storage.sql.exec(`ALTER TABLE content_items ADD COLUMN retry_count INTEGER DEFAULT 0`); } catch (e) { }
+        try { this.ctx.storage.sql.exec(`ALTER TABLE content_items ADD COLUMN last_error TEXT`); } catch (e) { }
     }
 
     // Generic retry helper for external fetch
@@ -119,6 +123,8 @@ export class ContentDO extends DurableObject<Env> {
             id, body.chatId, body.title, body.text, Date.now()
         );
 
+        // Note: For Phase 2, we will add a metadata column to SQLite and update this.
+
         await this.ctx.storage.setAlarm(Date.now() + 5000);
         return Response.json({ success: true, id });
     }
@@ -128,7 +134,7 @@ export class ContentDO extends DurableObject<Env> {
     }
 
     private async processBatch() {
-        const items = this.ctx.storage.sql.exec('SELECT * FROM content_items WHERE processed_json IS NULL LIMIT 10').toArray() as any[];
+        const items = this.ctx.storage.sql.exec('SELECT * FROM content_items WHERE processed_json IS NULL AND retry_count < 5 LIMIT 10').toArray() as any[];
         if (items.length === 0) return;
 
         const bySource: Record<string, any[]> = {};
@@ -181,6 +187,13 @@ export class ContentDO extends DurableObject<Env> {
             }
         } catch (e) {
             console.error('[ContentRefinery] Analysis failed:', e);
+            const errorMsg = e instanceof Error ? e.message : String(e);
+            for (const item of items) {
+                this.ctx.storage.sql.exec(
+                    "UPDATE content_items SET retry_count = retry_count + 1, last_error = ? WHERE id = ?",
+                    errorMsg, item.id
+                );
+            }
         }
 
         const pending = this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items WHERE processed_json IS NULL').toArray()[0] as any;
