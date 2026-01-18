@@ -12,7 +12,7 @@ class_name = "ContentDO"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["ContentDO"]
+new_sqlite_classes = ["ContentDO"]
 
 [[vectorize]]
 binding = "VECTOR_INDEX"
