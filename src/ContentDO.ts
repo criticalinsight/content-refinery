@@ -1,3 +1,4 @@
+import { DurableObject } from 'cloudflare:workers';
 import { Env } from './types';
 import { TelegramManager } from './telegram';
 
@@ -12,7 +13,7 @@ export class ContentDO extends DurableObject<Env> {
 
     private telegram: TelegramManager | null = null;
 
-    constructor(ctx: DurableObjectState, env: Env) {
+    constructor(ctx: DurableObjectState, public env: Env) {
         super(ctx, env);
         this.ctx.getWebSockets().forEach(ws => {
             // Re-bind handlers after restart if needed

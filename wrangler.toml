@@ -1,29 +1,25 @@
 name = "content-refinery"
 main = "src/worker.ts"
-compatibility_date = "2024-09-23"
-
-[durable_objects]
-bindings = [
-    { name = "CONTENT_DO", class_name = "ContentDO" }
-]
-
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["ContentDO"]
+compatibility_date = "2024-01-01"
 
 [observability]
 enabled = true
 
-[observability.logs]
-enabled = true
-invocation_logs = true
+[[durable_objects.bindings]]
+name = "CONTENT_DO"
+class_name = "ContentDO"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["ContentDO"]
 
 [[vectorize]]
 binding = "VECTOR_INDEX"
 index_name = "refinery_signals"
 
-# Secret[vars]
+[vars]
 # TELEGRAM_API_ID = "..." (set via secret)
 # TELEGRAM_API_HASH = "..." (set via secret)
+# TELEGRAM_BOT_TOKEN = "..." (set via secret)
 # GEMINI_API_KEY = "..." (set via secret)
-# Set via: wrangler secret put <NAME>
+# BOARD_DO_URL = "..." (set via secret)
