@@ -1,3 +1,1 @@
-# Product Requirements Document (PRD)
-
-## Status: Draft
+# Product Requirements Document
