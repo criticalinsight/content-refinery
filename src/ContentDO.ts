@@ -36,6 +36,7 @@ export class ContentDO extends DurableObject<Env> {
                 sentiment TEXT,
                 is_signal INTEGER DEFAULT 0,
                 retry_count INTEGER DEFAULT 0,
+                synced_to_graph INTEGER DEFAULT 0,
                 last_error TEXT,
                 created_at INTEGER
             );
@@ -47,6 +48,7 @@ export class ContentDO extends DurableObject<Env> {
         try { this.ctx.storage.sql.exec(`ALTER TABLE channels ADD COLUMN last_ingested_at INTEGER`); } catch (e) { }
         try { this.ctx.storage.sql.exec(`ALTER TABLE content_items ADD COLUMN retry_count INTEGER DEFAULT 0`); } catch (e) { }
         try { this.ctx.storage.sql.exec(`ALTER TABLE content_items ADD COLUMN last_error TEXT`); } catch (e) { }
+        try { this.ctx.storage.sql.exec(`ALTER TABLE content_items ADD COLUMN synced_to_graph INTEGER DEFAULT 0`); } catch (e) { }
     }
 
     // Generic retry helper for external fetch
@@ -103,6 +105,23 @@ export class ContentDO extends DurableObject<Env> {
             const body = await request.json() as any;
             const result = this.ctx.storage.sql.exec(body.sql, ...(body.params || [])).toArray();
             return Response.json({ result });
+        }
+
+        if (url.pathname === '/knowledge/sync' && request.method === 'GET') {
+            const items = this.ctx.storage.sql.exec(
+                'SELECT id, processed_json FROM content_items WHERE processed_json IS NOT NULL AND synced_to_graph = 0 LIMIT 50'
+            ).toArray();
+            return Response.json({ items });
+        }
+
+        if (url.pathname === '/knowledge/mark-synced' && request.method === 'POST') {
+            const body = await request.json() as any;
+            if (Array.isArray(body.ids)) {
+                for (const id of body.ids) {
+                    this.ctx.storage.sql.exec('UPDATE content_items SET synced_to_graph = 1 WHERE id = ?', id);
+                }
+            }
+            return Response.json({ success: true });
         }
 
         return new Response('Not found', { status: 404 });

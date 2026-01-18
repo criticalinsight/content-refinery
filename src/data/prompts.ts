@@ -19,6 +19,9 @@ Internalize the following data as raw intelligence for extraction.
         "relevance_score": number,
         "is_urgent": boolean,
         "source_ids": ["msg_id_1", "msg_id_2"],
+        "relationships": [
+            { "target": "Asset/Entity", "type": "impacts" | "correlated_with" | "leads_to", "description": "Brief context" }
+        ],
         "metadata": {
             "category": "Equities" | "Macro" | "Crypto" | "Policy",
             "impact_area": "Price" | "Volume" | "Legislation"
