@@ -18,8 +18,8 @@ except ImportError:
 sys.stdin = open(os.devnull, 'r')
 
 # Configuration
-PRIMARY_MODEL = "gemini-1.5-pro-latest" # Using standard llm-gemini names
-FALLBACK_MODEL = "gemini-1.5-flash-latest"
+PRIMARY_MODEL = "gemini-3-pro-preview"
+FALLBACK_MODEL = "gemini-3-flash-preview"
 VENV_BIN = "./.ralph_venv/bin"
 LLM_PATH = f"{VENV_BIN}/llm"
 TASKS_FILE = "TASKS.md"
