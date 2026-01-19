@@ -425,11 +425,20 @@ const SettingsModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
 }> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'rss' | 'webhooks'>('rss');
+  const [activeTab, setActiveTab] = useState<'rss' | 'webhooks' | 'privacy' | 'system'>('rss');
   const [feeds, setFeeds] = useState<RSSFeed[]>([]);
   const [newFeedName, setNewFeedName] = useState('');
   const [newFeedUrl, setNewFeedUrl] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Privacy Settings
+  const [keywords, setKeywords] = useState<string[]>([]);
+  const [newKeyword, setNewKeyword] = useState('');
+
+  // System Tools
+  const [purgeId, setPurgeId] = useState('');
+  const [purgeKeyword, setPurgeKeyword] = useState('');
+  const [isPurging, setIsPurging] = useState(false);
 
   const fetchFeeds = async () => {
     try {
@@ -439,8 +448,21 @@ const SettingsModal: React.FC<{
     } catch (e) { console.error(e); }
   };
 
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/settings`);
+      const data = await res.json();
+      if (data.settings && data.settings.sensitive_keywords) {
+        setKeywords(data.settings.sensitive_keywords);
+      }
+    } catch (e) { console.error(e); }
+  };
+
   useEffect(() => {
-    if (isOpen && activeTab === 'rss') fetchFeeds();
+    if (isOpen) {
+      if (activeTab === 'rss') fetchFeeds();
+      if (activeTab === 'privacy') fetchSettings();
+    }
   }, [isOpen, activeTab]);
 
   const handleAddFeed = async () => {
@@ -468,43 +490,98 @@ const SettingsModal: React.FC<{
     } catch (e) { console.error(e); }
   };
 
+  const handleAddKeyword = async () => {
+    if (!newKeyword) return;
+    const updated = [...keywords, newKeyword];
+    setLoading(true);
+    try {
+      await fetch(`${API_BASE}/admin/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'sensitive_keywords', value: updated })
+      });
+      setKeywords(updated);
+      setNewKeyword('');
+    } catch (e) { console.error(e); } finally { setLoading(false); }
+  };
+
+  const removeKeyword = async (word: string) => {
+    const updated = keywords.filter(k => k !== word);
+    try {
+      await fetch(`${API_BASE}/admin/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'sensitive_keywords', value: updated })
+      });
+      setKeywords(updated);
+    } catch (e) { console.error(e); }
+  };
+
+  const handlePurge = async (type: 'source' | 'keyword') => {
+    if (!confirm('Are you sure? This is irreversible.')) return;
+    setIsPurging(true);
+    try {
+      await fetch(`${API_BASE}/admin/purge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_id: type === 'source' ? purgeId : undefined,
+          keyword: type === 'keyword' ? purgeKeyword : undefined,
+          dry_run: false
+        })
+      });
+      alert('Purge complete.');
+      setPurgeId('');
+      setPurgeKeyword('');
+    } catch (e) { alert('Purge failed'); } finally { setIsPurging(false); }
+  };
+
+  const handleReprocess = async () => {
+    if (!confirm('Reprocess ALL items? This will take time and tokens.')) return;
+    await fetch(`${API_BASE}/admin/reset-processing`);
+    alert('Reprocessing queued.');
+  };
+
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="glass rounded-2xl p-6 w-full max-w-2xl relative max-h-[80vh] overflow-hidden flex flex-col">
+      <div className="glass rounded-2xl p-6 w-full max-w-2xl relative max-h-[85vh] overflow-hidden flex flex-col">
         <button onClick={onClose} className="absolute top-4 right-4 text-white/40 hover:text-white">
           <X className="w-5 h-5" />
         </button>
 
         <h2 className="font-bold text-xl mb-6 flex items-center gap-2">
           <Settings className="w-5 h-5 text-accent" />
-          Source Management
+          Settings & Configuration
         </h2>
 
-        <div className="flex gap-4 border-b border-white/10 mb-6">
-          <button
-            onClick={() => setActiveTab('rss')}
-            className={cn("pb-3 text-sm font-medium transition-colors border-b-2", activeTab === 'rss' ? "border-accent text-accent" : "border-transparent text-white/60 hover:text-white")}
-          >
-            RSS Feeds
-          </button>
-          <button
-            onClick={() => setActiveTab('webhooks')}
-            className={cn("pb-3 text-sm font-medium transition-colors border-b-2", activeTab === 'webhooks' ? "border-accent text-accent" : "border-transparent text-white/60 hover:text-white")}
-          >
-            Webhooks
-          </button>
+        <div className="flex gap-4 border-b border-white/10 mb-6 overflow-x-auto">
+          {[
+            { id: 'rss', label: 'Feeds' },
+            { id: 'webhooks', label: 'Webhooks' },
+            { id: 'privacy', label: 'Privacy' },
+            { id: 'system', label: 'System' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={cn("pb-3 text-sm font-medium transition-colors border-b-2 whitespace-nowrap px-2",
+                activeTab === tab.id ? "border-accent text-accent" : "border-transparent text-white/60 hover:text-white")}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto pr-2">
+        <div className="flex-1 overflow-y-auto pr-2 terminal-scroll">
           {activeTab === 'rss' && (
             <div className="space-y-6">
               <div className="flex gap-2">
                 <input
                   value={newFeedName}
                   onChange={(e) => setNewFeedName(e.target.value)}
-                  placeholder="Feed Name (e.g. Coindesk)"
+                  placeholder="Feed Name"
                   className="glass px-3 py-2 rounded-lg text-sm bg-white/5 outline-none focus:ring-1 ring-accent flex-1"
                 />
                 <input
@@ -545,7 +622,7 @@ const SettingsModal: React.FC<{
           )}
 
           {activeTab === 'webhooks' && (
-            <div className="space-y-6">
+            <div className="space-y-4">
               {[
                 { type: 'generic', name: 'Generic JSON', icon: Globe, color: 'text-blue-400', bg: 'bg-blue-400/20' },
                 { type: 'discord', name: 'Discord', icon: MessageCircle, color: 'text-indigo-400', bg: 'bg-indigo-400/20' },
@@ -561,11 +638,111 @@ const SettingsModal: React.FC<{
                       <p className="text-xs text-white/50">Send POST requests to this endpoint</p>
                     </div>
                   </div>
-                  <div className="font-mono text-xs bg-black/30 p-3 rounded-lg flex items-center justify-between text-white/60">
+                  <div className="font-mono text-xs bg-black/30 p-3 rounded-lg flex items-center justify-between text-white/60 break-all select-all">
                     {`${API_BASE}/webhooks/${hook.type}`}
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {activeTab === 'privacy' && (
+            <div className="space-y-6">
+              <div className="glass p-4 rounded-xl bg-orange-500/5 border-orange-500/20">
+                <h3 className="font-bold text-sm flex items-center gap-2 mb-2 text-orange-200">
+                  <Shield className="w-4 h-4" />
+                  Auto-Scrubbing Active
+                </h3>
+                <p className="text-xs text-white/60">
+                  API Keys (OpenAI, GitHub, Slack) are automatically redacted.
+                  Content matching the keywords below is dropped before storage.
+                </p>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-mono uppercase text-white/40 mb-3">Blocked Keywords</h4>
+                <div className="flex gap-2 mb-4">
+                  <input
+                    value={newKeyword}
+                    onChange={(e) => setNewKeyword(e.target.value)}
+                    placeholder="Add keyword (e.g. 'confidential')"
+                    className="glass px-3 py-2 rounded-lg text-sm bg-white/5 outline-none focus:ring-1 ring-accent flex-1"
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddKeyword()}
+                  />
+                  <button onClick={handleAddKeyword} disabled={loading} className="bg-white/10 hover:bg-white/20 px-4 rounded-lg">
+                    <Plus className="w-5 h-5 text-white" />
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {keywords.map(k => (
+                    <div key={k} className="bg-red-500/10 border border-red-500/20 text-red-200 px-3 py-1 rounded-full text-xs flex items-center gap-2">
+                      {k}
+                      <button onClick={() => removeKeyword(k)} className="hover:text-white"><X className="w-3 h-3" /></button>
+                    </div>
+                  ))}
+                  {keywords.length === 0 && <span className="text-white/20 text-xs italic">No specific keywords blocked.</span>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'system' && (
+            <div className="space-y-6">
+              {/* Reprocess */}
+              <div className="glass p-5 rounded-xl flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-sm flex items-center gap-2 mb-1">
+                    <Cpu className="w-4 h-4 text-accent" />
+                    Global Reprocessing
+                  </h3>
+                  <p className="text-xs text-white/50">Re-run AI analysis on all historical data.</p>
+                </div>
+                <button onClick={handleReprocess} className="bg-white/5 hover:bg-white/10 text-accent border border-accent/20 px-4 py-2 rounded-lg text-xs font-bold uppercase transition-colors">
+                  Trigger Batch
+                </button>
+              </div>
+
+              {/* Purge */}
+              <div className="glass p-5 rounded-xl border-danger/20 bg-danger/5">
+                <h3 className="font-bold text-sm flex items-center gap-2 mb-4 text-danger">
+                  <Trash2 className="w-4 h-4" />
+                  Data Purge
+                </h3>
+
+                <div className="space-y-4">
+                  <div className="flex gap-2">
+                    <input
+                      value={purgeId}
+                      onChange={(e) => setPurgeId(e.target.value)}
+                      placeholder="Source ID (Channel ID)"
+                      className="glass px-3 py-2 rounded-lg text-sm bg-white/5 outline-none focus:ring-1 ring-danger flex-1"
+                    />
+                    <button
+                      onClick={() => handlePurge('source')}
+                      disabled={!purgeId || isPurging}
+                      className="bg-danger/20 hover:bg-danger/40 text-danger px-4 rounded-lg text-xs font-bold uppercase transition-colors"
+                    >
+                      Purge Source
+                    </button>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      value={purgeKeyword}
+                      onChange={(e) => setPurgeKeyword(e.target.value)}
+                      placeholder="Keyword match (e.g. 'ProjectX')"
+                      className="glass px-3 py-2 rounded-lg text-sm bg-white/5 outline-none focus:ring-1 ring-danger flex-1"
+                    />
+                    <button
+                      onClick={() => handlePurge('keyword')}
+                      disabled={!purgeKeyword || isPurging}
+                      className="bg-danger/20 hover:bg-danger/40 text-danger px-4 rounded-lg text-xs font-bold uppercase transition-colors"
+                    >
+                      Purge Text
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>
