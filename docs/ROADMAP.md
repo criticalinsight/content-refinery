@@ -17,6 +17,8 @@
     - Allows the user to receive push alerts only for 'God Tier' alpha.
 7. [x] **Admin Alerts**:
     - Forward `ErrorLogger` critical failures directly to the Admin DM.
+8. [x] **Voice-to-Alpha**:
+    - Automatically transcribe voice notes and ingest as market signals.
 
 ---
 
