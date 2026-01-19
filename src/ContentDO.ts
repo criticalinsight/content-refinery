@@ -254,6 +254,10 @@ export class ContentDO extends DurableObject<Env> {
             return this.handleNotifications(request, url);
         }
 
+        if (url.pathname.startsWith('/telegram/auth')) {
+            return this.handleTelegramAuth(request, url);
+        }
+
         if (url.pathname.startsWith('/telegram')) {
             return this.handleTelegramRoutes(request, url);
         }
@@ -279,9 +283,6 @@ export class ContentDO extends DurableObject<Env> {
             return this.handleKnowledgeSync(request, url);
         }
 
-        if (url.pathname.startsWith('/telegram/auth')) {
-            return this.handleTelegramAuth(request, url);
-        }
 
         if (url.pathname.startsWith('/signals')) {
             return this.handleSignalSearch(request, url);
