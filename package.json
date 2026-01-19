@@ -18,7 +18,7 @@
         "@cloudflare/vitest-pool-workers": "^0.12.4",
         "@cloudflare/workers-types": "^4.20240117.0",
         "typescript": "^5.3.3",
-        "vitest": "^3.2.4",
+        "vitest": "^3.2.0",
         "wrangler": "^4.59.2"
     }
 }
