@@ -669,8 +669,8 @@ const NarrativeCard: React.FC<{ narrative: Narrative }> = ({ narrative }) => {
 };
 
 const BottomNav: React.FC<{
-  viewMode: 'feed' | 'graph' | 'narratives' | 'analytics';
-  setViewMode: (v: 'feed' | 'graph' | 'narratives' | 'analytics') => void;
+  viewMode: 'feed' | 'graph' | 'narratives' | 'analytics' | 'telegram';
+  setViewMode: (v: 'feed' | 'graph' | 'narratives' | 'analytics' | 'telegram') => void;
   onSettings: () => void;
 }> = ({ viewMode, setViewMode, onSettings }) => {
   return (
@@ -703,6 +703,13 @@ const BottomNav: React.FC<{
         <span className="text-[10px] font-bold uppercase tracking-tighter">Stats</span>
       </button>
       <button
+        onClick={() => setViewMode('telegram')}
+        className={cn("flex flex-col items-center gap-1 p-2 transition-all", viewMode === 'telegram' ? "text-accent" : "text-white/40")}
+      >
+        <MessageCircle className="w-5 h-5" />
+        <span className="text-[10px] font-bold uppercase tracking-tighter">TG</span>
+      </button>
+      <button
         onClick={onSettings}
         className="flex flex-col items-center gap-1 p-2 text-white/40 active:text-accent transition-all"
       >
@@ -721,7 +728,7 @@ const App: React.FC = () => {
   const [telegramStatus, setTelegramStatus] = useState<TelegramStatus>('unconfigured');
   const [showTelegramModal, setShowTelegramModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [viewMode, setViewMode] = useState<'feed' | 'graph' | 'narratives' | 'analytics'>('feed');
+  const [viewMode, setViewMode] = useState<'feed' | 'graph' | 'narratives' | 'analytics' | 'telegram'>('feed');
   const [pushSupported, setPushSupported] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
 
@@ -934,6 +941,12 @@ const App: React.FC = () => {
                   viewMode === 'analytics' ? "bg-accent text-black shadow-lg" : "text-white/40 hover:text-white/60")}>
                 Analytics
               </button>
+              <button
+                onClick={() => setViewMode('telegram')}
+                className={cn("px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all",
+                  viewMode === 'telegram' ? "bg-accent text-black shadow-lg" : "text-white/40 hover:text-white/60")}>
+                Telegram
+              </button>
             </div>
             <button onClick={enableNotifications} title="Enable Push Notifications" className={cn("hover:text-accent transition-colors", subscribed ? "text-success" : "")}>
               <Bell className="w-4 h-4" />
@@ -973,6 +986,8 @@ const App: React.FC = () => {
       )}>
         {viewMode === 'analytics' ? (
           <AnalyticsView />
+        ) : viewMode === 'telegram' ? (
+          <TelegramView />
         ) : viewMode === 'feed' ? (
           <>
             {/* Feed Section - Col 1 & 2 */}
@@ -1201,6 +1216,42 @@ const App: React.FC = () => {
         </div>
       </footer>
     </div >
+  );
+};
+
+const TelegramView: React.FC = () => {
+  const [chats, setChats] = useState<{ id: string; name: string; type: string; last_ingested_at: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = () => {
+      fetch(`${API_BASE}/telegram/chats`).then(r => r.json()).then(data => {
+        setChats(data.chats || []);
+        setLoading(false);
+      });
+    };
+    load();
+    const interval = setInterval(load, 5000); // Polling for "real-time" updates
+    return () => clearInterval(interval);
+  }, []);
+
+  if (loading) return <div className="text-center p-8 text-zinc-400">Loading Telegram Chats...</div>;
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {chats.map(chat => (
+        <div key={chat.id} className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl flex items-center justify-between">
+          <div>
+            <h3 className="text-zinc-200 font-medium truncate max-w-[200px]">{chat.name}</h3>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-[10px] bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-400 uppercase">{chat.type}</span>
+              <span className="text-[10px] text-zinc-500">Last: {new Date(chat.last_ingested_at).toLocaleTimeString()}</span>
+            </div>
+          </div>
+        </div>
+      ))}
+      {chats.length === 0 && <div className="col-span-full text-center text-zinc-500 py-10">No chats discovered yet. Send a message to the bot!</div>}
+    </div>
   );
 };
 
