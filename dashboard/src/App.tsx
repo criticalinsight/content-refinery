@@ -922,7 +922,16 @@ const App: React.FC = () => {
                   viewMode === 'graph' ? "bg-accent text-black shadow-lg" : "text-white/40 hover:text-white/60")}>
                 Knowledge Graph
               </button>
+              <button
+                onClick={() => setViewMode('analytics')}
+                className={cn("px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all",
+                  viewMode === 'analytics' ? "bg-accent text-black shadow-lg" : "text-white/40 hover:text-white/60")}>
+                Analytics
+              </button>
             </div>
+            <button onClick={enableNotifications} title="Enable Push Notifications" className={cn("hover:text-accent transition-colors", subscribed ? "text-success" : "")}>
+              <Bell className="w-4 h-4" />
+            </button>
             <button onClick={() => setShowSettings(true)} className="hover:text-accent transition-colors">Settings</button>
           </nav>
 
@@ -956,7 +965,9 @@ const App: React.FC = () => {
         "flex-1 overflow-hidden",
         viewMode === 'feed' ? "grid grid-cols-1 lg:grid-cols-3 gap-6" : "flex flex-col"
       )}>
-        {viewMode === 'feed' ? (
+        {viewMode === 'analytics' ? (
+          <AnalyticsView />
+        ) : viewMode === 'feed' ? (
           <>
             {/* Feed Section - Col 1 & 2 */}
             <div className="lg:col-span-2 flex flex-col gap-6 overflow-hidden">
