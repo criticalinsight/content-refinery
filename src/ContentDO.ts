@@ -846,17 +846,24 @@ export class ContentDO extends DurableObject<Env> {
         const id = crypto.randomUUID();
         let text = body.text || '';
 
-        // Phase 16: Voice-to-Alpha
+        // Phase 16: Voice & Image Alpha
         if (body.media) {
             try {
                 const tg = await this.ensureTelegram();
                 const buffer = await tg.downloadMedia(body.media);
                 if (buffer) {
-                    text = await this.transcribeAudio(new Uint8Array(buffer));
-                    console.log(`[ContentRefinery] Voice transcribed: "${text.substring(0, 100)}..."`);
+                    const media = body.media.media;
+                    // Check if photo (Gram.js types or property check)
+                    if (media && (media.photo || media.className === 'MessageMediaPhoto')) {
+                        text = await this.analyzeImage(new Uint8Array(buffer));
+                        console.log(`[ContentRefinery] Image OCR complete: "${text.substring(0, 100)}..."`);
+                    } else {
+                        text = await this.transcribeAudio(new Uint8Array(buffer));
+                        console.log(`[ContentRefinery] Voice transcribed: "${text.substring(0, 100)}..."`);
+                    }
                 }
             } catch (e) {
-                console.error("[ContentRefinery] Voice transcription failed:", e);
+                console.error("[ContentRefinery] Media processing failed:", e);
                 // We'll continue with empty text or just fail this item
             }
         }
@@ -1183,6 +1190,46 @@ export class ContentDO extends DurableObject<Env> {
             return response.text || "";
         } catch (e) {
             console.error("[ContentRefinery] Whisper transcription error:", e);
+            throw e;
+        }
+    }
+
+    /**
+     * Phase 16: Omni-Alpha (Gemini OCR)
+     * Extracts text and market signals from photos using Gemini 1.5 Flash Vision.
+     */
+    private async analyzeImage(buffer: Uint8Array): Promise<string> {
+        const base64Image = btoa(String.fromCharCode(...buffer));
+        const prompt = "Analyze this image for market signals, news, charts, or financial data. Extract all relevant text and summarize the core intelligence findings.";
+
+        try {
+            const response = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.env.GEMINI_API_KEY}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [
+                                { text: prompt },
+                                {
+                                    inline_data: {
+                                        mime_type: "image/jpeg",
+                                        data: base64Image
+                                    }
+                                }
+                            ]
+                        }],
+                        generationConfig: { temperature: 0.2 }
+                    })
+                }
+            );
+
+            const result = await response.json() as any;
+            if (result.error) throw new Error(result.error.message);
+            return result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        } catch (e) {
+            console.error("[ContentRefinery] Gemini Vision analysis failed:", e);
             throw e;
         }
     }
