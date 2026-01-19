@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { Env } from './types';
 import { TelegramManager } from './telegram';
 import { fetchAndParseRSS } from './utils/rss';
+import { ErrorLogger } from './ErrorLogger';
 
 interface ChannelConfig {
     id: string; // Telegram Chat ID
@@ -13,12 +14,21 @@ interface ChannelConfig {
 export class ContentDO extends DurableObject<Env> {
 
     private telegram: TelegramManager | null = null;
+    private logger: ErrorLogger;
+
+    // In-memory caches
+    private signalCache: { data: any, timestamp: number } | null = null;
+    private narrativeCache: { data: any, timestamp: number } | null = null;
+    private CACHE_TTL = 30 * 1000; // 30 seconds
+
+    // Rate limiting: IP -> timestamp[]
+    private rateLimiter = new Map<string, number[]>();
+    private RATE_LIMIT_THRESHOLD = 60; // requests
+    private RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
 
     constructor(ctx: DurableObjectState, public env: Env) {
         super(ctx, env);
-        this.ctx.getWebSockets().forEach(ws => {
-            // Re-bind handlers after restart if needed
-        });
+        this.logger = new ErrorLogger(this.ctx.storage);
         this.initDatabase();
         // Auto-resume Telegram session if one exists
         this.resumeTelegramSession();
@@ -69,6 +79,15 @@ export class ContentDO extends DurableObject<Env> {
                 last_ingested_at INTEGER,
                 type TEXT DEFAULT 'telegram',
                 feed_url TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS internal_errors (
+                id TEXT PRIMARY KEY,
+                module TEXT,
+                message TEXT,
+                stack TEXT,
+                context JSON,
+                created_at INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS content_items (
