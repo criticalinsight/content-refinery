@@ -231,6 +231,10 @@ export class ContentDO extends DurableObject<Env> {
             return this.handleNotifications(request, url);
         }
 
+        if (url.pathname.startsWith('/telegram')) {
+            return this.handleTelegramRoutes(request, url);
+        }
+
         if (url.pathname === '/ingest' || url.pathname === '/process' || url.pathname === '/sql') {
             return this.handleAdmin(request, url);
         }
