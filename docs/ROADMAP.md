@@ -44,6 +44,13 @@
 
 - [x] Signal tagging and categorization
 - [x] Full-text signal search
+
+---
+
+### Phase 5: Autonomous Refinement (Reflexion & Janitor)
+- **Reflexion Loop**: Autonomous self-critique of AI extractions to improve sentiment and narrative accuracy.
+- **Janitor Pattern**: Scheduled background maintenance for database pruning and log rotation.
+- **Durable Object Alarms**: Institutionalizing 12-hour maintenance cycles.
 - [x] Time-range filtering
 - [x] Duplicate detection logic
 - [x] Dashboard filtering UI
