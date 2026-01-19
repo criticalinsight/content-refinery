@@ -194,12 +194,25 @@ export class ContentDO extends DurableObject<Env> {
         }
         const url = new URL(request.url);
 
+        if (url.pathname === '/health' || url.pathname === '/stats') {
+            return this.handleHealthStats(request, url);
+        }
+
+        if (url.pathname === '/ingest' || url.pathname === '/process' || url.pathname === '/sql') {
+            return this.handleAdmin(request, url);
+        }
+
+        if (url.pathname === '/ws') {
+            return this.handleWebSocket(request);
+        }
+
         if (url.pathname === '/sources/rss') {
             return this.handleRSS(request, url);
         }
 
         if (url.pathname.startsWith('/webhooks/')) {
-            return this.handleWebhook(request, url);
+            const type = url.pathname.split('/')[2] as any;
+            return this.handleWebhook(request, type);
         }
 
         if (url.pathname.startsWith('/knowledge')) {
@@ -493,10 +506,7 @@ export class ContentDO extends DurableObject<Env> {
      * Handles webhook-based content ingestion from Discord, Slack, etc.
      * Time Complexity: O(1) for ingestion.
      */
-    // This handleWebhook is now called from the fetch method directly, not via url.pathname.startsWith('/webhooks/')
-    // The previous handleWebhook logic is now integrated into the fetch method's conditional for '/webhooks/'
-    // This method is now the actual handler for specific webhook types.
-    async handleWebhook(request: Request, type: 'generic' | 'discord' | 'slack'): Promise<Response> {
+    private async handleWebhook(request: Request, type: 'generic' | 'discord' | 'slack'): Promise<Response> {
         if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
         try {
@@ -504,53 +514,32 @@ export class ContentDO extends DurableObject<Env> {
             let ingestData: { chatId: string, title: string, text: string } | null = null;
 
             if (type === 'generic') {
-                if (!body.text && !body.content) return Response.json({ error: 'Missing text or content' }, { status: 400 });
                 ingestData = {
                     chatId: body.source_id || 'webhook-generic',
                     title: body.source_name || 'Generic Webhook',
-                    text: body.text || body.content
+                    text: body.text || body.content || body.message
                 };
-            }
-
-            if (type === 'discord') {
-                // Handle Discord webhook payload
-                if (!body.content && (!body.embeds || body.embeds.length === 0)) {
-                    return Response.json({ status: 'ignored', reason: 'empty' });
-                }
+            } else if (type === 'discord') {
                 const text = [body.content, ...(body.embeds?.map((e: any) => `${e.title || ''}\n${e.description || ''}`) || [])].join('\n').trim();
                 ingestData = {
-                    chatId: body.guild_id || body.channel_id || 'webhook-discord',
+                    chatId: body.channel_id || 'webhook-discord',
                     title: body.username || 'Discord Webhook',
                     text
                 };
-            }
-
-            if (type === 'slack') {
-                // Slack Challenge
-                if (body.type === 'url_verification') {
-                    return Response.json({ challenge: body.challenge });
-                }
-
-                // Slack Event
-                if (body.event && body.event.type === 'message' && !body.event.bot_id) {
-                    ingestData = {
-                        chatId: body.team_id || 'webhook-slack',
-                        title: 'Slack Webhook',
-                        text: body.event.text
-                    };
-                } else {
-                    return Response.json({ status: 'ignored', reason: 'unsupported_event' });
+            } else if (type === 'slack') {
+                if (body.type === 'url_verification') return Response.json({ challenge: body.challenge });
+                if (body.event?.type === 'message' && !body.event.bot_id) {
+                    ingestData = { chatId: body.team_id || 'webhook-slack', title: 'Slack Webhook', text: body.event.text };
                 }
             }
 
-            if (ingestData) {
+            if (ingestData?.text) {
                 await this.handleIngestInternal(ingestData);
                 return Response.json({ success: true });
             }
-
-            return Response.json({ error: 'Could not process payload' }, { status: 400 });
+            return this.sendError('Could not process payload or empty message', 400);
         } catch (e) {
-            return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+            return this.sendError(e instanceof Error ? e.message : String(e));
         }
     }
 
