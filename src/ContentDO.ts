@@ -1408,6 +1408,8 @@ export class ContentDO extends DurableObject<Env> {
                 await this.logger.log('NarrativeEngine', e, { clusterSize: cluster.length });
             }
         }
+    }
+
     /**
      * Phase 16: Internal Scheduled Handler
      */
