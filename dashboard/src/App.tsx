@@ -934,228 +934,233 @@ const App: React.FC = () => {
               <div className="flex justify-between items-center">
                 <h2 className="flex items-center gap-2 font-semibold">
                   <Zap className="text-accent w-4 h-4" />
-                  Intelligence Feed
+                  {historyMode ? 'Historical Archive' : 'Intelligence Feed'}
                 </h2>
-                <div className="flex gap-2 items-center">
-                  {historyMode && (
-                    <div className="flex gap-2 animate-in fade-in slide-in-from-right-4 duration-300">
-                      <div className="relative">
-                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-white/40" />
-                        <input
-                          type="text"
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          placeholder="Search signals..."
-                          className="glass pl-8 pr-3 py-1.5 rounded-lg text-xs bg-white/5 border-none outline-none focus:ring-1 ring-accent w-48"
-                        />
-                      </div>
-                      <select
-                        value={filters.source}
-                        onChange={(e) => setFilters(prev => ({ ...prev, source: e.target.value }))}
-                        className="glass px-2 py-1.5 rounded-lg text-xs bg-white/5 border-none outline-none focus:ring-1 ring-accent"
-                      >
-                        <option value="">All Sources</option>
-                        {availableSources.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                      <button
-                        onClick={() => setFilters(prev => ({ ...prev, urgent: !filters.urgent }))}
-                        className={cn(
-                          "px-3 py-1.5 rounded-lg text-xs font-mono transition-all border",
-                          filters.urgent ? "bg-danger/20 border-danger text-danger" : "glass border-transparent text-white/60"
-                        )}
-                      >
-                        URGENT
-                      </button>
-                    </div>
-                  )}
-                  {!historyMode && (
-                    <div className="flex gap-2">
-                      <button className="glass p-2 rounded-xl hover:bg-white/5 transition-colors" onClick={() => setHistoryMode(true)}><Search className="w-4 h-4" /></button>
-                      <button className="glass p-2 rounded-xl hover:bg-white/5 transition-colors"><Bell className="w-4 h-4" /></button>
-                    </div>
-                  )}
+                <div className="flex items-center gap-2 text-[10px] font-mono text-white/40 uppercase tracking-widest">
+                  <Clock className="w-3 h-3 text-success animate-pulse" />
+                  Live Sync
                 </div>
               </div>
-
-              <div className="flex-1 glass rounded-3xl overflow-hidden flex flex-col border border-white/5">
-                <div className="grid grid-cols-4 text-[10px] font-mono text-white/40 p-4 border-b border-white/5 bg-white/[0.02]">
-                  <span>SOURCE</span>
-                  <span className="col-span-2">SUMMARY</span>
-                  <span className="text-right">ALPHA</span>
-                </div>
-                <div className="flex-1 overflow-y-auto terminal-scroll p-4 space-y-4">
-                  {(historyMode ? searchResults : signals).length === 0 ? (
-                    <div className="h-full flex items-center justify-center text-white/20 italic">
-                      {historyMode ? (searchQuery ? 'No results found.' : 'Search for historical signals...') : 'Waiting for incoming signals...'}
+              <div className="flex gap-2 items-center">
+                {historyMode && (
+                  <div className="flex gap-2 animate-in fade-in slide-in-from-right-4 duration-300">
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-white/40" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search signals..."
+                        className="glass pl-8 pr-3 py-1.5 rounded-lg text-xs bg-white/5 border-none outline-none focus:ring-1 ring-accent w-48"
+                      />
                     </div>
-                  ) : (
-                    (historyMode ? searchResults : signals).map(s => (
-                      <div key={s.id} className="grid grid-cols-4 gap-4 items-start group hover:bg-white/[0.02] p-2 rounded-xl transition-all cursor-crosshair">
-                        <div className="text-[10px] font-mono text-white/50 truncate uppercase leading-tight font-bold group-hover:text-accent transition-colors">
-                          {s.source_name}
-                        </div>
-                        <div className="col-span-2 space-y-1.5">
-                          <span className="text-sm line-clamp-1 block">{s.summary}</span>
-                          {s.tags && s.tags.length > 0 && (
-                            <div className="flex flex-wrap gap-1">
-                              {s.tags.slice(0, 3).map((tag, i) => (
-                                <span key={i} className="text-[9px] px-1.5 py-0.5 rounded-md bg-white/5 text-white/40 border border-white/5 font-mono uppercase">
-                                  {tag}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <div className="text-right flex flex-col items-end">
-                          <span className={cn("text-[10px] font-mono font-bold px-1.5 py-0.5 rounded",
-                            s.sentiment === 'positive' ? "bg-success/20 text-success" :
-                              s.sentiment === 'negative' ? "bg-danger/20 text-danger" :
-                                "bg-white/5 text-white/40"
-                          )}>
-                            {s.sentiment === 'positive' ? '+AL' : s.sentiment === 'negative' ? '-AL' : 'NEU'}
-                          </span>
-                          <span className="text-[9px] font-mono text-white/20 mt-1">{new Date(s.created_at).toLocaleTimeString()}</span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Sidebar - Col 3 */}
-            <aside className="flex flex-col gap-6 overflow-y-auto pr-1">
-              {/* Telegram Status Card */}
-              <div className={cn(
-                "glass p-5 rounded-2xl",
-                telegramStatus === 'online' ? "bg-gradient-to-br from-success/10 to-transparent" : "bg-gradient-to-br from-accent/10 to-transparent"
-              )}>
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="font-bold flex items-center gap-2">
-                    <MessageCircle className={cn("w-5 h-5", telegramStatus === 'online' ? "text-success" : "text-accent")} />
-                    Telegram Feed
-                  </h3>
-                  <div className={cn("w-2 h-2 rounded-full",
-                    telegramStatus === 'online' ? "bg-success animate-pulse" : "bg-warning"
-                  )} />
-                </div>
-                <div className="space-y-3">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-white/40">Status</span>
-                    <span className={cn("font-mono font-bold uppercase",
-                      telegramStatus === 'online' ? "text-success" : "text-warning"
-                    )}>{telegramStatus}</span>
-                  </div>
-                  {telegramStatus !== 'online' && (
-                    <button
-                      onClick={() => setShowTelegramModal(true)}
-                      className="w-full bg-accent/20 hover:bg-accent/30 text-accent font-bold py-2 rounded-lg transition-colors text-sm"
+                    <select
+                      value={filters.source}
+                      onChange={(e) => setFilters(prev => ({ ...prev, source: e.target.value }))}
+                      className="glass px-2 py-1.5 rounded-lg text-xs bg-white/5 border-none outline-none focus:ring-1 ring-accent"
                     >
-                      Connect Telegram
+                      <option value="">All Sources</option>
+                      {availableSources.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <button
+                      onClick={() => setFilters(prev => ({ ...prev, urgent: !filters.urgent }))}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg text-xs font-mono transition-all border",
+                        filters.urgent ? "bg-danger/20 border-danger text-danger" : "glass border-transparent text-white/60"
+                      )}
+                    >
+                      URGENT
                     </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Alpha Forecast Card */}
-              <div className="glass p-5 rounded-3xl border border-white/5 bg-white/[0.01]">
-                <h3 className="font-bold flex items-center gap-2 mb-6 text-sm">
-                  <TrendingUp className="text-accent w-5 h-5 shadow-[0_0_15px_rgba(74,222,128,0.3)]" />
-                  Alpha Engine
-                </h3>
-
-                {alphaNodes.length > 0 ? (
-                  <div className="space-y-4">
-                    {alphaNodes.slice(0, 3).map((node, i) => (
-                      <div key={node.id} className="flex items-center justify-between group">
-                        <div className="flex items-center gap-2">
-                          <span className={cn("text-xs font-bold font-mono w-4 h-4 flex items-center justify-center rounded",
-                            i === 0 ? "bg-accent text-black" : "bg-white/10 text-white/60"
-                          )}>{i + 1}</span>
-                          <div>
-                            <div className="font-bold text-sm leading-none">{node.label}</div>
-                            <div className="text-[10px] text-white/40 font-mono mt-0.5">
-                              Vel: {node.velocity.toFixed(0)} | Sent: {node.sentiment_score > 0 ? '+' : ''}{node.sentiment_score.toFixed(1)}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-sm font-bold font-mono text-accent">{node.alpha_score.toFixed(1)}</div>
-                          <div className="text-[10px] text-white/30 uppercase">Alpha</div>
-                        </div>
-                      </div>
-                    ))}
-
-                    <div className="h-px bg-white/5 my-2" />
-
-                    <div className="flex justify-between text-xs">
-                      <span className="text-white/40">Market Confidence</span>
-                      <span className="text-success font-mono font-bold">
-                        {(80 + (alphaNodes[0]?.sentiment_score || 0) * 2).toFixed(1)}%
-                      </span>
-                    </div>
                   </div>
-                ) : (
-                  <div className="text-center py-6 text-white/20">
-                    <TrendingUp className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-xs">Gathering Alpha Data...</p>
+                )}
+                {!historyMode && (
+                  <div className="flex gap-2">
+                    <button className="glass p-2 rounded-xl hover:bg-white/5 transition-colors" onClick={() => setHistoryMode(true)}><Search className="w-4 h-4" /></button>
+                    <button className="glass p-2 rounded-xl hover:bg-white/5 transition-colors"><Bell className="w-4 h-4" /></button>
                   </div>
                 )}
               </div>
+            </div>
 
-              {/* Network Stats */}
-              <div className="glass p-5 rounded-3xl flex-1 flex flex-col gap-4 border border-white/5">
-                <h3 className="font-bold flex items-center gap-2 text-sm">
-                  <Activity className="text-accent w-5 h-5" />
-                  Network Data
-                </h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="p-3 glass rounded-2xl border border-white/5 bg-white/[0.02]">
-                    <p className="text-[9px] text-white/30 uppercase font-bold mb-1 tracking-widest">Throughput</p>
-                    <p className="text-xl font-mono font-bold">1.2k</p>
+            <div className="flex-1 glass rounded-3xl overflow-hidden flex flex-col border border-white/5">
+              <div className="grid grid-cols-4 text-[10px] font-mono text-white/40 p-4 border-b border-white/5 bg-white/[0.02]">
+                <span>SOURCE</span>
+                <span className="col-span-2">SUMMARY</span>
+                <span className="text-right">ALPHA</span>
+              </div>
+              <div className="flex-1 overflow-y-auto terminal-scroll p-4 space-y-4">
+                {(historyMode ? searchResults : signals).length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-white/20 italic">
+                    {historyMode ? (searchQuery ? 'No results found.' : 'Search for historical signals...') : 'Waiting for incoming signals...'}
                   </div>
-                  <div className="p-3 glass rounded-2xl border border-white/5 bg-white/[0.02]">
-                    <p className="text-xl font-mono font-bold text-success">42ms</p>
-                    <p className="text-[9px] text-white/30 uppercase font-bold mt-1 tracking-widest">Latency</p>
+                ) : (
+                  (historyMode ? searchResults : signals).map(s => (
+                    <div key={s.id} className="grid grid-cols-4 gap-4 items-start group hover:bg-white/[0.02] p-2 rounded-xl transition-all cursor-crosshair">
+                      <div className="text-[10px] font-mono text-white/50 truncate uppercase leading-tight font-bold group-hover:text-accent transition-colors">
+                        {s.source_name}
+                      </div>
+                      <div className="col-span-2 space-y-1.5">
+                        <span className="text-sm line-clamp-1 block">{s.summary}</span>
+                        {s.tags && s.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {s.tags.slice(0, 3).map((tag, i) => (
+                              <span key={i} className="text-[9px] px-1.5 py-0.5 rounded-md bg-white/5 text-white/40 border border-white/5 font-mono uppercase">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right flex flex-col items-end">
+                        <span className={cn("text-[10px] font-mono font-bold px-1.5 py-0.5 rounded",
+                          s.sentiment === 'positive' ? "bg-success/20 text-success" :
+                            s.sentiment === 'negative' ? "bg-danger/20 text-danger" :
+                              "bg-white/5 text-white/40"
+                        )}>
+                          {s.sentiment === 'positive' ? '+AL' : s.sentiment === 'negative' ? '-AL' : 'NEU'}
+                        </span>
+                        <span className="text-[9px] font-mono text-white/20 mt-1">{new Date(s.created_at).toLocaleTimeString()}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+        {/* Sidebar - Col 3 */}
+        <aside className="flex flex-col gap-6 overflow-y-auto pr-1">
+          {/* Telegram Status Card */}
+          <div className={cn(
+            "glass p-5 rounded-2xl",
+            telegramStatus === 'online' ? "bg-gradient-to-br from-success/10 to-transparent" : "bg-gradient-to-br from-accent/10 to-transparent"
+          )}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold flex items-center gap-2">
+                <MessageCircle className={cn("w-5 h-5", telegramStatus === 'online' ? "text-success" : "text-accent")} />
+                Telegram Feed
+              </h3>
+              <div className={cn("w-2 h-2 rounded-full",
+                telegramStatus === 'online' ? "bg-success animate-pulse" : "bg-warning"
+              )} />
+            </div>
+            <div className="space-y-3">
+              <div className="flex justify-between text-xs">
+                <span className="text-white/40">Status</span>
+                <span className={cn("font-mono font-bold uppercase",
+                  telegramStatus === 'online' ? "text-success" : "text-warning"
+                )}>{telegramStatus}</span>
+              </div>
+              {telegramStatus !== 'online' && (
+                <button
+                  onClick={() => setShowTelegramModal(true)}
+                  className="w-full bg-accent/20 hover:bg-accent/30 text-accent font-bold py-2 rounded-lg transition-colors text-sm"
+                >
+                  Connect Telegram
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Alpha Forecast Card */}
+          <div className="glass p-5 rounded-3xl border border-white/5 bg-white/[0.01]">
+            <h3 className="font-bold flex items-center gap-2 mb-6 text-sm">
+              <TrendingUp className="text-accent w-5 h-5 shadow-[0_0_15px_rgba(74,222,128,0.3)]" />
+              Alpha Engine
+            </h3>
+
+            {alphaNodes.length > 0 ? (
+              <div className="space-y-4">
+                {alphaNodes.slice(0, 3).map((node, i) => (
+                  <div key={node.id} className="flex items-center justify-between group">
+                    <div className="flex items-center gap-2">
+                      <span className={cn("text-xs font-bold font-mono w-4 h-4 flex items-center justify-center rounded",
+                        i === 0 ? "bg-accent text-black" : "bg-white/10 text-white/60"
+                      )}>{i + 1}</span>
+                      <div>
+                        <div className="font-bold text-sm leading-none">{node.label}</div>
+                        <div className="text-[10px] text-white/40 font-mono mt-0.5">
+                          Vel: {node.velocity.toFixed(0)} | Sent: {node.sentiment_score > 0 ? '+' : ''}{node.sentiment_score.toFixed(1)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-bold font-mono text-accent">{node.alpha_score.toFixed(1)}</div>
+                      <div className="text-[10px] text-white/30 uppercase">Alpha</div>
+                    </div>
                   </div>
-                </div>
-                <div className="flex-1 flex flex-col justify-end">
-                  <div className="flex items-center gap-3 text-xs text-white/40">
-                    <History className="w-4 h-4" />
-                    Last reset: 14h ago
-                  </div>
+                ))}
+
+                <div className="h-px bg-white/5 my-2" />
+
+                <div className="flex justify-between text-xs">
+                  <span className="text-white/40">Market Confidence</span>
+                  <span className="text-success font-mono font-bold">
+                    {(80 + (alphaNodes[0]?.sentiment_score || 0) * 2).toFixed(1)}%
+                  </span>
                 </div>
               </div>
-            </aside>
-          </>
-        ) : viewMode === 'narratives' ? (
-          <div className="flex-1 overflow-y-auto terminal-scroll grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-1">
-            {narratives.length > 0 ? (
-              narratives.map(n => <NarrativeCard key={n.id} narrative={n} />)
             ) : (
-              <div className="col-span-full h-full flex flex-col items-center justify-center text-white/20 py-20 grayscale opacity-50 border border-white/5 rounded-3xl bg-white/[0.01]">
-                <BookOpen className="w-16 h-16 mb-4 text-accent" />
-                <h3 className="text-xl font-bold font-mono text-white/80">SYNTHESIZING NARRATIVES...</h3>
-                <p className="text-sm font-mono mt-2 text-white/40">Correlation Engine is scanning for clusters.</p>
+              <div className="text-center py-6 text-white/20">
+                <TrendingUp className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p className="text-xs">Gathering Alpha Data...</p>
               </div>
             )}
           </div>
-        ) : (
-          <RelationalView />
-        )}
-      </main>
 
-      {/* Footer */}
-      <footer className="glass px-6 py-2 rounded-full flex justify-between items-center text-[10px] uppercase font-mono tracking-tighter text-white/30">
-        <div className="flex gap-4">
-          <span>&copy; 2026 Critical Insight</span>
-          <span className="flex items-center gap-1"><Shield className="w-3 h-3 text-success" /> End-to-End Encrypted</span>
-        </div>
-        <div className="flex gap-4">
-          <span>System: OPERATIONAL</span>
-          <span>Region: CF-EDGE</span>
-        </div>
-      </footer>
+          {/* Network Stats */}
+          <div className="glass p-5 rounded-3xl flex-1 flex flex-col gap-4 border border-white/5">
+            <h3 className="font-bold flex items-center gap-2 text-sm">
+              <Activity className="text-accent w-5 h-5" />
+              Network Data
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3 glass rounded-2xl border border-white/5 bg-white/[0.02]">
+                <p className="text-[9px] text-white/30 uppercase font-bold mb-1 tracking-widest">Throughput</p>
+                <p className="text-xl font-mono font-bold">1.2k</p>
+              </div>
+              <div className="p-3 glass rounded-2xl border border-white/5 bg-white/[0.02]">
+                <p className="text-xl font-mono font-bold text-success">42ms</p>
+                <p className="text-[9px] text-white/30 uppercase font-bold mt-1 tracking-widest">Latency</p>
+              </div>
+            </div>
+            <div className="flex-1 flex flex-col justify-end">
+              <div className="flex items-center gap-3 text-xs text-white/40">
+                <History className="w-4 h-4" />
+                Last reset: 14h ago
+              </div>
+            </div>
+          </div>
+        </aside>
+      </>
+      ) : viewMode === 'narratives' ? (
+      <div className="flex-1 overflow-y-auto terminal-scroll grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-1">
+        {narratives.length > 0 ? (
+          narratives.map(n => <NarrativeCard key={n.id} narrative={n} />)
+        ) : (
+          <div className="col-span-full h-full flex flex-col items-center justify-center text-white/20 py-20 grayscale opacity-50 border border-white/5 rounded-3xl bg-white/[0.01]">
+            <BookOpen className="w-16 h-16 mb-4 text-accent" />
+            <h3 className="text-xl font-bold font-mono text-white/80">SYNTHESIZING NARRATIVES...</h3>
+            <p className="text-sm font-mono mt-2 text-white/40">Correlation Engine is scanning for clusters.</p>
+          </div>
+        )}
+      </div>
+      ) : (
+      <RelationalView />
+        )}
+    </main>
+
+      {/* Footer */ }
+  <footer className="glass px-6 py-2 rounded-full flex justify-between items-center text-[10px] uppercase font-mono tracking-tighter text-white/30">
+    <div className="flex gap-4">
+      <span>&copy; 2026 Critical Insight</span>
+      <span className="flex items-center gap-1"><Shield className="w-3 h-3 text-success" /> End-to-End Encrypted</span>
+    </div>
+    <div className="flex gap-4">
+      <span>System: OPERATIONAL</span>
+      <span>Region: CF-EDGE</span>
+    </div>
+  </footer>
     </div >
   );
 };
