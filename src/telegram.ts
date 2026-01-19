@@ -1,3 +1,7 @@
+import { TelegramClient, Api } from "telegram";
+import { StringSession } from "telegram/sessions";
+import { NewMessage } from "telegram/events";
+
 /**
  * TelegramManager handles the MTProto lifecycle, including authentication,
  * session persistence, and real-time message listening.
