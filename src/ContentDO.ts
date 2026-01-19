@@ -212,6 +212,14 @@ export class ContentDO extends DurableObject<Env> {
             return this.handleHealthStats(request, url);
         }
 
+        if (url.pathname.startsWith('/analytics')) {
+            return this.handleAnalytics(request, url);
+        }
+
+        if (url.pathname.startsWith('/notifications')) {
+            return this.handleNotifications(request, url);
+        }
+
         if (url.pathname === '/ingest' || url.pathname === '/process' || url.pathname === '/sql') {
             return this.handleAdmin(request, url);
         }
@@ -656,6 +664,70 @@ export class ContentDO extends DurableObject<Env> {
         }
 
         return new Response('Method not allowed', { status: 405 });
+    }
+
+    /**
+     * Phase 19: Analytics & Reporting API
+     */
+    private handleAnalytics(request: Request, url: URL): Response {
+        if (url.pathname === '/analytics/trends') {
+            // Daily signal volume (last 30 days)
+            const query = `
+                SELECT date(created_at / 1000, 'unixepoch') as day, COUNT(*) as count 
+                FROM content_items 
+                WHERE is_signal = 1
+                GROUP BY day 
+                ORDER BY day DESC 
+                LIMIT 30
+            `;
+            const trends = this.ctx.storage.sql.exec(query).toArray();
+            return Response.json({ trends: trends.reverse() });
+        }
+
+        if (url.pathname === '/analytics/sentiment') {
+            const sentiment = this.ctx.storage.sql.exec(`
+                SELECT sentiment, COUNT(*) as count 
+                FROM content_items 
+                WHERE is_signal = 1 
+                GROUP BY sentiment
+            `).toArray();
+            return Response.json({ sentiment });
+        }
+
+        if (url.pathname === '/analytics/sources') {
+            const sources = this.ctx.storage.sql.exec(`
+                SELECT source_name, COUNT(*) as count 
+                FROM content_items 
+                WHERE is_signal = 1 
+                GROUP BY source_name 
+                ORDER BY count DESC 
+                LIMIT 10
+            `).toArray();
+            return Response.json({ sources });
+        }
+
+        return this.sendError('Analytics endpoint not found', 404);
+    }
+
+    /**
+     * Phase 22: Push Notifications API
+     */
+    private async handleNotifications(request: Request, url: URL): Promise<Response> {
+        if (request.method === 'POST' && url.pathname === '/notifications/subscribe') {
+            try {
+                const sub = await request.json() as any;
+                if (!sub.endpoint) return this.sendError('Missing endpoint');
+
+                this.ctx.storage.sql.exec(
+                    'INSERT OR REPLACE INTO push_subscriptions (id, endpoint, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?)',
+                    sub.endpoint, sub.endpoint, sub.keys?.p256dh, sub.keys?.auth, Date.now()
+                );
+                return Response.json({ success: true });
+            } catch (e) {
+                return this.sendError('Subscription failed');
+            }
+        }
+        return this.sendError('Notification endpoint not found', 404);
     }
 
     /**
