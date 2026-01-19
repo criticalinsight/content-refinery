@@ -1,46 +1,153 @@
-# Strategic Roadmap: Content Refinery
+# Content Refinery - Product Roadmap
 
-This roadmap outlines the evolution of the Content Refinery from a basic financial signal extractor to a multi-source, high-fidelity intelligence hub.
-
----
-
-## Phase 1: Foundation & Reliability (Current)
-*Focus: Stabilizing the core ingestion and extraction pipeline.*
-
-- [x] **Separate Repository**: Decouple refinery logic from the main application.
-- [x] **Durable Object Integration**: Use DO SQLite for persistent ingestion tracking.
-- [ ] **Advanced Prompt Engineering**: Refine the News Analyst prompt for higher precision and lower latency.
-- [ ] **Comprehensive Error Handling**: Implement robust retries and DLQs (Dead Letter Queues) for failed Gemini processing.
-
-## Phase 2: Multi-Source Expansion
-*Focus: Broadening the data stream and improving context.*
-
-- [ ] **Twitter/X Integration**: Ingest real-time market sentiment from social media.
-- [ ] **RSS & News Feed Aggregation**: Layer in official institutional news sources.
-- [ ] **Source Weighting**: Implement a reputation system to weight signals based on source historical accuracy.
-- [ ] **Multimodal Processing**: Process images and charts from Telegram/Twitter using Gemini's vision capabilities.
-
-## Phase 3: Relational Intelligence
-*Focus: Connecting the dots between signals.*
-
-- [ ] **Knowledge Graph Integration (Graphiti)**: Store entities and relationships to detect cross-asset impacts.
-- [ ] **Temporal Correlation**: Identify patterns where Signal A consistently leads to Event B.
-- [ ] **Impact Forecasting**: Move from "what happened" to "what is likely to happen next" based on relational context.
-
-## Phase 4: Enterprise Scale & Privacy
-*Focus: Performance, security, and institutional features.*
-
-- [ ] **Vector Database Integration**: Long-term semantic search over years of refined data.
-- [ ] **Encrypted Signal Routing**: End-to-end encryption for high-alpha private feeds.
-- [ ] **Real-time API Access**: Expose refined signals via a low-latency websocket API for external consumption.
+**Current Version**: 1.5 (Production)  
+**Last Updated**: 2026-01-19
 
 ---
 
-## Technical Milestones
+## ✅ Phase 1: Foundation (Complete)
+*Deployed: 2026-01-18*
 
-| Milestone | Target Date | Primary Tech |
-| :--- | :--- | :--- |
-| **v1.0: Signal Core** | Q1 2026 | Cloudflare DO + Gemini 2.0 |
-| **v1.5: Multi-Source** | Q2 2026 | Social API + Multimodal Vision |
-| **v2.0: Neural Graph** | Q3 2026 | Graphiti + Relation Mapping |
-| **v3.0: Alpha Engine** | Q4 2026 | Predictive ML + Vector Memory |
+- [x] Cloudflare Worker with Durable Object architecture
+- [x] SQLite storage for channels, signals, and state
+- [x] Basic signal ingestion API (`/ingest`)
+- [x] Gemini AI integration for signal processing
+- [x] Vectorize semantic memory index
+- [x] WebSocket real-time streaming
+
+---
+
+## ✅ Phase 2: Telegram Integration (Complete)
+*Deployed: 2026-01-19*
+
+- [x] MTProto authentication with Gram.js
+- [x] QR code login with 2FA support
+- [x] Session persistence across restarts
+- [x] Live message listener
+- [x] Auto-channel registration
+- [x] Premium dashboard UI with login modal
+
+---
+
+## ✅ Phase 3: Custom Domains (Complete)
+*Deployed: 2026-01-19*
+
+- [x] API domain: `api.moecapital.com`
+- [x] Dashboard domain: `app.moecapital.com`
+- [x] DNS configuration and SSL provisioning
+- [x] CORS headers for cross-origin access
+
+---
+
+## 🚧 Phase 4: Enhanced Intelligence (Next)
+*Target: Q1 2026*
+
+### Signal Enhancement
+- [ ] Multi-channel Telegram monitoring (join specific groups)
+- [ ] Signal tagging and categorization
+- [ ] Custom urgency thresholds per channel
+- [ ] Duplicate detection across sources
+
+### Search & Retrieval
+- [ ] Full-text signal search
+- [ ] Semantic similarity queries
+- [ ] Time-range filtering
+- [ ] Export to CSV/JSON
+
+### Dashboard Improvements
+- [ ] Signal filtering UI (by source, urgency, sentiment)
+- [ ] Historical signal browser
+- [ ] Notification preferences
+- [ ] Dark/light theme toggle
+
+---
+
+## ✅ Phase 5: Multi-Source Expansion (Complete)
+*Deployed: 2026-01-19*
+
+- [x] RSS feed ingestion engine (`/sources/rss`)
+- [x] Webhook receivers (Slack/Discord/Generic)
+- [x] Source Management UI in Settings
+- [x] Auto-polling for new content
+
+---
+
+## ✅ Phase 6: Relational Knowledge Graph (Complete)
+*Deployed: 2026-01-19*
+
+- [x] Entity extraction (Triples: Subject-Predicate-Object)
+- [x] Graph database schema (`graph_nodes`, `graph_edges`)
+- [x] Interactive Force-Directed Graph visualization
+- [x] Node centrality and importance tracking
+
+---
+
+## ✅ Phase 7: Predictive Alpha Engine (Complete)
+*Deployed: 2026-01-19*
+
+- [x] Composite Alpha Scoring (`Sens + Vel + Imp`)
+- [x] Real-time Alpha Leaderboard
+- [x] Forecast Card with market confidence
+- [x] Sentiment velocity tracking
+
+---
+
+## 🚧 Phase 8: Mobile Experience (Next)
+*Target: Q1 2026*
+
+### Mobile Optimization
+- [ ] Responsive Layout (Stack columns on mobile)
+- [ ] Bottom Navigation Bar (Mobile only)
+- [ ] PWA Manifest (Add to Home Screen)
+- [ ] Touch-optimized interactions
+*Target: Q3 2026*
+
+### Team Collaboration
+- [ ] Multi-user authentication
+- [ ] Role-based access control
+- [ ] Shared dashboards
+- [ ] Activity audit logs
+
+### Integration APIs
+- [ ] Slack/Teams notifications
+- [ ] Trading platform webhooks
+- [ ] CRM integrations
+- [ ] Custom webhook targets
+
+### Deployment Options
+- [ ] Self-hosted option
+- [ ] Private cloud deployment
+- [ ] On-premise installation guide
+
+---
+
+## Technical Debt & Improvements
+
+### Performance
+- [ ] Implement signal batching for high-volume sources
+- [ ] Add caching layer for frequently accessed data
+- [ ] Optimize Vectorize query patterns
+
+### Code Quality
+- [ ] Add comprehensive test suite
+- [ ] Implement error tracking (Sentry/Honeycomb)
+- [ ] Create deployment CI/CD pipeline
+- [ ] Documentation improvements
+
+### Security
+- [ ] Add rate limiting to all endpoints
+- [ ] Implement request signing for ingestion
+- [ ] Security audit and penetration testing
+
+---
+
+## Version History
+
+| Version | Date | Highlights |
+|---------|------|------------|
+| 1.5 | 2026-01-19 | QR login, 2FA, custom domains |
+| 1.4 | 2026-01-19 | Telegram integration |
+| 1.3 | 2026-01-18 | Premium dashboard |
+| 1.2 | 2026-01-18 | Vectorize memory |
+| 1.1 | 2026-01-18 | Gemini AI processing |
+| 1.0 | 2026-01-18 | Initial deployment |

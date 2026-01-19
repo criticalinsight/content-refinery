@@ -8,6 +8,7 @@
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
+        "fast-xml-parser": "^5.3.3",
         "telegram": "^2.26.22"
     },
     "devDependencies": {

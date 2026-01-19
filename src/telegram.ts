@@ -1,9 +1,11 @@
-import { TelegramClient } from "telegram";
+import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions";
+import { NewMessage } from "telegram/events";
 
 export class TelegramManager {
     private client: TelegramClient | null = null;
     private session: StringSession;
+    private phoneCodeHash: string = "";
 
     constructor(private env: any, sessionStr: string = "") {
         this.session = new StringSession(sessionStr);
@@ -21,41 +23,168 @@ export class TelegramManager {
 
         this.client = new TelegramClient(this.session, apiId, apiHash, {
             connectionRetries: 5,
+            deviceModel: "ContentRefinery v1.5",
+            systemVersion: "Linux",
+            appVersion: "1.0.0"
         });
     }
 
-    async connect(botToken?: string) {
+    async connect() {
         await this.init();
         if (!this.client) return;
-
-        if (botToken) {
-            await this.client.start({
-                botAuthToken: botToken,
-            });
-        } else {
-            // For user login, this would typically involve a code flow handled elsewhere
+        if (!this.client.connected) {
             await this.client.connect();
         }
-
-        return this.client.session.save();
+        return this.client.session.save() as unknown as string;
     }
 
-    getClient() {
-        return this.client;
+    // Step 1: Send verification code to phone
+    async sendCode(phoneNumber: string): Promise<string> {
+        await this.connect();
+        const result = await this.client!.sendCode(
+            {
+                apiId: parseInt(this.env.TELEGRAM_API_ID),
+                apiHash: this.env.TELEGRAM_API_HASH,
+            },
+            phoneNumber
+        );
+        this.phoneCodeHash = result.phoneCodeHash;
+        return result.phoneCodeHash;
+    }
+
+    // Step 2: Sign in with the received code
+    async signIn(phoneNumber: string, phoneCodeHash: string, code: string): Promise<string> {
+        await this.connect();
+        try {
+            await this.client!.invoke(
+                new Api.auth.SignIn({
+                    phoneNumber,
+                    phoneCodeHash,
+                    phoneCode: code,
+                })
+            );
+            return this.client!.session.save() as unknown as string;
+        } catch (e: any) {
+            if (e.errorMessage === "SESSION_PASSWORD_NEEDED") {
+                throw new Error("2FA_REQUIRED");
+            }
+            throw e;
+        }
+    }
+
+    // Step 2b: Complete 2FA with password
+    async checkPassword(password: string): Promise<string> {
+        await this.connect();
+        // Use signInWithPassword which handles SRP internally
+        const result = await this.client!.invoke(new Api.account.GetPassword());
+        const passwordCheck = await this.client!.invoke(
+            new Api.auth.CheckPassword({
+                password: await this.computeSrp(result, password)
+            })
+        );
+        return this.client!.session.save() as unknown as string;
+    }
+
+    private async computeSrp(passwordResult: Api.account.Password, password: string): Promise<Api.InputCheckPasswordSRP> {
+        // Gram.js provides a helper for this
+        const { computeCheck } = await import("telegram/Password");
+        return computeCheck(passwordResult, password);
+    }
+
+    async isLoggedIn() {
+        if (!this.client || !this.client.connected) return false;
+        try {
+            const me = await this.client.getMe();
+            return !!me;
+        } catch (e) {
+            return false;
+        }
     }
 
     async listen(onMessage: (msg: any) => Promise<void>) {
-        if (!this.client) await this.connect(this.env.TELEGRAM_BOT_TOKEN);
+        await this.connect();
 
         this.client?.addEventHandler(async (event: any) => {
             const message = event.message;
             if (message && message.message) {
                 await onMessage({
                     chatId: message.peerId?.toString(),
-                    title: "Telegram Live", // Peer details can be fetched for better naming
+                    title: "Telegram Live",
                     text: message.message
                 });
             }
-        });
+        }, new NewMessage({}));
+    }
+
+    getClient() {
+        return this.client;
+    }
+
+    getPhoneCodeHash() {
+        return this.phoneCodeHash;
+    }
+
+    // QR Login: Generate login token and return URL for QR code
+    async getQrLoginToken(): Promise<{ token: string; url: string; expires: number }> {
+        await this.connect();
+        const result = await this.client!.invoke(
+            new Api.auth.ExportLoginToken({
+                apiId: parseInt(this.env.TELEGRAM_API_ID),
+                apiHash: this.env.TELEGRAM_API_HASH,
+                exceptIds: []
+            })
+        );
+
+        if (result instanceof Api.auth.LoginToken) {
+            // Convert Uint8Array to base64url without Buffer
+            const tokenBytes = result.token;
+            const tokenBase64 = btoa(String.fromCharCode(...tokenBytes))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=/g, '');
+            const url = `tg://login?token=${tokenBase64}`;
+            return {
+                token: tokenBase64,
+                url,
+                expires: result.expires
+            };
+        }
+
+        throw new Error('Failed to generate QR login token');
+    }
+
+    // QR Login: Check if user has scanned QR and approved login
+    async checkQrLogin(): Promise<{ success: boolean; session?: string; needsPassword?: boolean }> {
+        await this.connect();
+        try {
+            const result = await this.client!.invoke(
+                new Api.auth.ExportLoginToken({
+                    apiId: parseInt(this.env.TELEGRAM_API_ID),
+                    apiHash: this.env.TELEGRAM_API_HASH,
+                    exceptIds: []
+                })
+            );
+
+            if (result instanceof Api.auth.LoginTokenSuccess) {
+                // User approved! We're logged in
+                return {
+                    success: true,
+                    session: this.client!.session.save() as unknown as string
+                };
+            } else if (result instanceof Api.auth.LoginTokenMigrateTo) {
+                // Need to migrate to another DC - handle this case
+                throw new Error('DC migration required - not supported yet');
+            } else if (result instanceof Api.auth.LoginToken) {
+                // Still waiting for user to scan
+                return { success: false };
+            }
+
+            return { success: false };
+        } catch (e: any) {
+            if (e.errorMessage === 'SESSION_PASSWORD_NEEDED') {
+                return { success: false, needsPassword: true };
+            }
+            throw e;
+        }
     }
 }

@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { Env } from './types';
 import { TelegramManager } from './telegram';
+import { fetchAndParseRSS } from './utils/rss';
 
 interface ChannelConfig {
     id: string; // Telegram Chat ID
@@ -19,19 +20,38 @@ export class ContentDO extends DurableObject<Env> {
             // Re-bind handlers after restart if needed
         });
         this.initDatabase();
-        this.initTelegram();
+        // Auto-resume Telegram session if one exists
+        this.resumeTelegramSession();
     }
 
-    private async initTelegram() {
+    private async resumeTelegramSession() {
         try {
-            this.telegram = new TelegramManager(this.env);
-            await this.telegram.listen(async (msg) => {
+            const sessionStr = await this.ctx.storage.get<string>('tg_session');
+            if (sessionStr) {
+                await this.ensureTelegram();
+                console.log("[ContentRefinery] Telegram session auto-resumed on startup.");
+            }
+        } catch (e) {
+            console.error("[ContentRefinery] Failed to auto-resume Telegram:", e);
+        }
+    }
+
+    private async ensureTelegram(): Promise<TelegramManager> {
+        if (this.telegram && this.telegram.getClient()?.connected) return this.telegram;
+
+        const sessionStr = await this.ctx.storage.get<string>('tg_session') || "";
+        this.telegram = new TelegramManager(this.env, sessionStr);
+        await this.telegram.connect();
+
+        // Auto-start listener if logged in
+        if (await this.telegram.isLoggedIn()) {
+            this.telegram.listen(async (msg) => {
                 await this.handleIngestInternal(msg);
             });
-            console.log("[ContentRefinery] Live Telegram listener active.");
-        } catch (e) {
-            console.error("[ContentRefinery] Failed to start Telegram listener:", e);
+            console.log("[ContentRefinery] Live Telegram listener resumed.");
         }
+
+        return this.telegram;
     }
 
     private initDatabase() {
@@ -43,7 +63,9 @@ export class ContentDO extends DurableObject<Env> {
                 created_at INTEGER,
                 success_count INTEGER DEFAULT 0,
                 failure_count INTEGER DEFAULT 0,
-                last_ingested_at INTEGER
+                last_ingested_at INTEGER,
+                type TEXT DEFAULT 'telegram',
+                feed_url TEXT
             );
 
             CREATE TABLE IF NOT EXISTS content_items (
@@ -68,6 +90,33 @@ export class ContentDO extends DurableObject<Env> {
         try { this.ctx.storage.sql.exec(`ALTER TABLE content_items ADD COLUMN retry_count INTEGER DEFAULT 0`); } catch (e) { }
         try { this.ctx.storage.sql.exec(`ALTER TABLE content_items ADD COLUMN last_error TEXT`); } catch (e) { }
         try { this.ctx.storage.sql.exec(`ALTER TABLE content_items ADD COLUMN synced_to_graph INTEGER DEFAULT 0`); } catch (e) { }
+        try { this.ctx.storage.sql.exec(`ALTER TABLE content_items ADD COLUMN tags JSON`); } catch (e) { }
+        try { this.ctx.storage.sql.exec(`ALTER TABLE content_items ADD COLUMN content_hash TEXT`); } catch (e) { }
+        try { this.ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS idx_content_hash ON content_items(content_hash)`); } catch (e) { }
+        try { this.ctx.storage.sql.exec(`ALTER TABLE channels ADD COLUMN type TEXT DEFAULT 'telegram'`); } catch (e) { }
+        try { this.ctx.storage.sql.exec(`ALTER TABLE channels ADD COLUMN feed_url TEXT`); } catch (e) { }
+
+        // Graph Schema
+        this.ctx.storage.sql.exec(`
+            CREATE TABLE IF NOT EXISTS graph_nodes (
+                id TEXT PRIMARY KEY,
+                label TEXT,
+                type TEXT,
+                importance REAL DEFAULT 1.0,
+                last_seen INTEGER
+            );
+            CREATE TABLE IF NOT EXISTS graph_edges (
+                source TEXT,
+                target TEXT,
+                relation TEXT,
+                weight REAL DEFAULT 1.0,
+                last_seen INTEGER,
+                PRIMARY KEY (source, target, relation)
+            );
+        `);
+
+        try { this.ctx.storage.sql.exec(`ALTER TABLE graph_nodes ADD COLUMN sentiment_score REAL DEFAULT 0`); } catch (e) { }
+        try { this.ctx.storage.sql.exec(`ALTER TABLE graph_nodes ADD COLUMN velocity REAL DEFAULT 0`); } catch (e) { }
     }
 
     // Generic retry helper for external fetch
@@ -94,6 +143,17 @@ export class ContentDO extends DurableObject<Env> {
 
     async fetch(request: Request): Promise<Response> {
         const url = new URL(request.url);
+
+        if (url.pathname === '/sources/rss') {
+            return this.handleRSS(request, url);
+        }
+
+        if (url.pathname.startsWith('/webhooks/')) {
+            const type = url.pathname.split('/')[2];
+            if (['generic', 'discord', 'slack'].includes(type)) {
+                return this.handleWebhook(request, type as any);
+            }
+        }
 
         if (url.pathname === '/health') {
             return Response.json({ status: 'healthy', timestamp: new Date().toISOString() });
@@ -143,6 +203,14 @@ export class ContentDO extends DurableObject<Env> {
             return Response.json({ success: true });
         }
 
+        if (url.pathname === '/knowledge/graph') {
+            return this.handleGraph(request);
+        }
+
+        if (url.pathname === '/knowledge/alpha') {
+            return this.handleAlpha(request);
+        }
+
         if (url.pathname === '/ws') {
             const upgradeHeader = request.headers.get('Upgrade');
             if (!upgradeHeader || upgradeHeader !== 'websocket') {
@@ -157,7 +225,439 @@ export class ContentDO extends DurableObject<Env> {
             return new Response(null, { status: 101, webSocket: client });
         }
 
+        if (url.pathname === '/telegram/auth/status' && request.method === 'GET') {
+            if (!this.env.TELEGRAM_API_ID || !this.env.TELEGRAM_API_HASH) {
+                return Response.json({ status: 'unconfigured', error: 'TELEGRAM_API_ID and TELEGRAM_API_HASH must be set as secrets.' });
+            }
+            try {
+                const tg = await this.ensureTelegram();
+                const loggedIn = await tg.isLoggedIn();
+                return Response.json({ status: loggedIn ? 'online' : 'offline' });
+            } catch (e) {
+                return Response.json({ status: 'error', error: e instanceof Error ? e.message : String(e) });
+            }
+        }
+
+        if (url.pathname === '/telegram/auth/send-code' && request.method === 'POST') {
+            const { phone } = await request.json() as any;
+            const tg = await this.ensureTelegram();
+
+            try {
+                const phoneCodeHash = await tg.sendCode(phone);
+                await this.ctx.storage.put('tg_phone', phone);
+                await this.ctx.storage.put('tg_phone_code_hash', phoneCodeHash);
+                return Response.json({ success: true, message: 'Code sent to your Telegram app' });
+            } catch (e) {
+                return Response.json({ success: false, error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+            }
+        }
+
+        if (url.pathname === '/telegram/auth/sign-in' && request.method === 'POST') {
+            const { code, password } = await request.json() as any;
+            const phone = await this.ctx.storage.get<string>('tg_phone');
+            const phoneCodeHash = await this.ctx.storage.get<string>('tg_phone_code_hash');
+
+            if (!phone || !phoneCodeHash) {
+                return Response.json({ success: false, error: 'No pending sign-in. Call send-code first.' }, { status: 400 });
+            }
+
+            const tg = await this.ensureTelegram();
+
+            try {
+                let newSession: string;
+                if (password) {
+                    // 2FA flow
+                    newSession = await tg.checkPassword(password);
+                } else {
+                    // Regular sign-in
+                    newSession = await tg.signIn(phone, phoneCodeHash, code);
+                }
+
+                await this.ctx.storage.put('tg_session', newSession);
+
+                // Start listener
+                tg.listen(async (msg) => {
+                    await this.handleIngestInternal(msg);
+                });
+
+                return Response.json({ success: true });
+            } catch (e: any) {
+                if (e.message === '2FA_REQUIRED') {
+                    return Response.json({ success: false, requires2FA: true, error: 'Two-factor authentication required' }, { status: 200 });
+                }
+                return Response.json({ success: false, error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+            }
+        }
+
+        if (url.pathname === '/telegram/auth/me' && request.method === 'GET') {
+            try {
+                const tg = await this.ensureTelegram();
+                const client = tg.getClient();
+                if (!client || !await tg.isLoggedIn()) {
+                    return Response.json({ loggedIn: false });
+                }
+                const me = await client.getMe();
+                return Response.json({
+                    loggedIn: true,
+                    user: {
+                        id: me.id?.toString(),
+                        firstName: me.firstName,
+                        lastName: me.lastName,
+                        username: me.username,
+                        phone: me.phone
+                    }
+                });
+            } catch (e) {
+                return Response.json({ loggedIn: false, error: e instanceof Error ? e.message : String(e) });
+            }
+        }
+
+        // QR Login: Get QR code token
+        if (url.pathname === '/telegram/auth/qr-token' && request.method === 'GET') {
+            try {
+                const tg = await this.ensureTelegram();
+                const tokenData = await tg.getQrLoginToken();
+                return Response.json({
+                    success: true,
+                    token: tokenData.token,
+                    url: tokenData.url,
+                    expires: tokenData.expires
+                });
+            } catch (e) {
+                return Response.json({ success: false, error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+            }
+        }
+
+        // QR Login: Check if user scanned QR and approved
+        if (url.pathname === '/telegram/auth/qr-check' && request.method === 'GET') {
+            try {
+                const tg = await this.ensureTelegram();
+                const result = await tg.checkQrLogin();
+
+                if (result.success && result.session) {
+                    await this.ctx.storage.put('tg_session', result.session);
+
+                    // Start listener
+                    tg.listen(async (msg) => {
+                        await this.handleIngestInternal(msg);
+                    });
+
+                    return Response.json({ success: true, loggedIn: true });
+                }
+
+                return Response.json({
+                    success: true,
+                    loggedIn: false,
+                    needsPassword: result.needsPassword || false
+                });
+            } catch (e) {
+                return Response.json({ success: false, error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+            }
+        }
+
+        // QR Login: Submit 2FA password after QR scan
+        if (url.pathname === '/telegram/auth/qr-password' && request.method === 'POST') {
+            const { password } = await request.json() as any;
+
+            if (!password) {
+                return Response.json({ success: false, error: 'Password is required' }, { status: 400 });
+            }
+
+            const tg = await this.ensureTelegram();
+
+            try {
+                const newSession = await tg.checkPassword(password);
+                await this.ctx.storage.put('tg_session', newSession);
+
+                // Start listener
+                tg.listen(async (msg) => {
+                    await this.handleIngestInternal(msg);
+                });
+
+                return Response.json({ success: true });
+            } catch (e) {
+                return Response.json({ success: false, error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+            }
+        }
+
+        // Signal Search with filters
+        if (url.pathname === '/signals/search' && request.method === 'GET') {
+            const query = url.searchParams.get('q') || '';
+            const source = url.searchParams.get('source');
+            const sentiment = url.searchParams.get('sentiment');
+            const urgent = url.searchParams.get('urgent');
+            const from = url.searchParams.get('from');
+            const to = url.searchParams.get('to');
+            const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
+            const offset = parseInt(url.searchParams.get('offset') || '0');
+
+            let sql = `SELECT id, source_id, source_name, raw_text, processed_json, sentiment, created_at 
+                       FROM content_items WHERE is_signal = 1`;
+            const params: any[] = [];
+
+            if (query) {
+                sql += ` AND raw_text LIKE ?`;
+                params.push(`%${query}%`);
+            }
+            if (source) {
+                sql += ` AND source_name = ?`;
+                params.push(source);
+            }
+            if (sentiment) {
+                sql += ` AND sentiment = ?`;
+                params.push(sentiment);
+            }
+            if (urgent === 'true') {
+                sql += ` AND json_extract(processed_json, '$.is_urgent') = true`;
+            }
+            if (from) {
+                sql += ` AND created_at >= ?`;
+                params.push(parseInt(from));
+            }
+            if (to) {
+                sql += ` AND created_at <= ?`;
+                params.push(parseInt(to));
+            }
+
+            sql += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+            params.push(limit, offset);
+
+            const signals = this.ctx.storage.sql.exec(sql, ...params).toArray();
+
+            // Get total count
+            let countSql = `SELECT COUNT(*) as total FROM content_items WHERE is_signal = 1`;
+            const total = (this.ctx.storage.sql.exec(countSql).one() as any)?.total || 0;
+
+            return Response.json({
+                signals: signals.map((s: any) => ({
+                    ...s,
+                    processed_json: s.processed_json ? JSON.parse(s.processed_json) : null
+                })),
+                total,
+                limit,
+                offset
+            });
+        }
+
+        // List signals (simple paginated list)
+        if (url.pathname === '/signals' && request.method === 'GET') {
+            const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
+            const offset = parseInt(url.searchParams.get('offset') || '0');
+
+            const signals = this.ctx.storage.sql.exec(
+                `SELECT id, source_id, source_name, raw_text, processed_json, sentiment, created_at 
+                 FROM content_items WHERE is_signal = 1 
+                 ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+                limit, offset
+            ).toArray();
+
+            const total = (this.ctx.storage.sql.exec(
+                `SELECT COUNT(*) as total FROM content_items WHERE is_signal = 1`
+            ).one() as any)?.total || 0;
+
+            return Response.json({
+                signals: signals.map((s: any) => ({
+                    ...s,
+                    processed_json: s.processed_json ? JSON.parse(s.processed_json) : null
+                })),
+                total,
+                limit,
+                offset
+            });
+        }
+
+        // Export signals as CSV or JSON
+        if (url.pathname === '/signals/export' && request.method === 'GET') {
+            const format = url.searchParams.get('format') || 'json';
+            const from = url.searchParams.get('from');
+            const to = url.searchParams.get('to');
+            const limit = Math.min(parseInt(url.searchParams.get('limit') || '500'), 1000);
+
+            let sql = `SELECT id, source_name, raw_text, processed_json, sentiment, created_at 
+                       FROM content_items WHERE is_signal = 1`;
+            const params: any[] = [];
+
+            if (from) {
+                sql += ` AND created_at >= ?`;
+                params.push(parseInt(from));
+            }
+            if (to) {
+                sql += ` AND created_at <= ?`;
+                params.push(parseInt(to));
+            }
+            sql += ` ORDER BY created_at DESC LIMIT ?`;
+            params.push(limit);
+
+            const signals = this.ctx.storage.sql.exec(sql, ...params).toArray().map((s: any) => ({
+                id: s.id,
+                source: s.source_name,
+                text: s.raw_text,
+                sentiment: s.sentiment,
+                summary: s.processed_json ? JSON.parse(s.processed_json)?.summary : '',
+                relevance: s.processed_json ? JSON.parse(s.processed_json)?.relevance_score : 0,
+                urgent: s.processed_json ? JSON.parse(s.processed_json)?.is_urgent : false,
+                timestamp: s.created_at
+            }));
+
+            if (format === 'csv') {
+                const header = 'id,source,text,sentiment,summary,relevance,urgent,timestamp\n';
+                const rows = signals.map((s: any) =>
+                    `"${s.id}","${s.source}","${(s.text || '').replace(/"/g, '""')}","${s.sentiment}","${(s.summary || '').replace(/"/g, '""')}",${s.relevance},${s.urgent},${s.timestamp}`
+                ).join('\n');
+                return new Response(header + rows, {
+                    headers: {
+                        'Content-Type': 'text/csv',
+                        'Content-Disposition': 'attachment; filename="signals.csv"'
+                    }
+                });
+            }
+
+            return Response.json({ signals, exported_at: Date.now() });
+        }
+
+        // Get unique sources for filtering
+        if (url.pathname === '/signals/sources' && request.method === 'GET') {
+            const sources = this.ctx.storage.sql.exec(
+                `SELECT DISTINCT source_name FROM content_items WHERE source_name IS NOT NULL ORDER BY source_name`
+            ).toArray();
+            return Response.json({ sources: sources.map((s: any) => s.source_name) });
+        }
+
         return new Response('Not found', { status: 404 });
+    }
+
+    // Graph API
+    async handleGraph(request: Request): Promise<Response> {
+        if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+
+        const limit = 200; // Limit nodes for performance
+
+        // Fetch top nodes by importance/connectivity
+        const nodes = this.ctx.storage.sql.exec(
+            `SELECT * FROM graph_nodes ORDER BY importance DESC LIMIT ?`, limit
+        ).toArray();
+
+        // Fetch edges between these nodes
+        const nodeIds = nodes.map((n: any) => `'${n.id}'`).join(',');
+        const edges = nodeIds ? this.ctx.storage.sql.exec(
+            `SELECT * FROM graph_edges WHERE source IN (${nodeIds}) AND target IN (${nodeIds}) LIMIT 500`
+        ).toArray() : [];
+
+        return Response.json({ nodes, links: edges });
+    }
+
+    // Alpha API
+    async handleAlpha(request: Request): Promise<Response> {
+        if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+
+        // Alpha Calculation: (Importance * 0.5) + (Sentiment * 2.0) + (Velocity * 1.5)
+        // We normalize on read for the leaderboard
+        const alphaNodes = this.ctx.storage.sql.exec(`
+            SELECT id, label, importance, sentiment_score, velocity,
+            (importance * 0.5 + sentiment_score * 2.0 + velocity * 1.5) as alpha_score
+            FROM graph_nodes 
+            WHERE type = 'entity'
+            ORDER BY alpha_score DESC 
+            LIMIT 10
+        `).toArray();
+
+        return Response.json({ alphaNodes });
+    }
+
+    // RSS Management Endpoints
+    async handleRSS(request: Request, url: URL): Promise<Response> {
+        if (request.method === 'GET') {
+            const feeds = this.ctx.storage.sql.exec("SELECT * FROM channels WHERE type = 'rss'").toArray();
+            return Response.json({ feeds });
+        }
+
+        if (request.method === 'POST') {
+            const body = await request.json() as any;
+            if (!body.url || !body.name) return Response.json({ error: 'Missing url or name' }, { status: 400 });
+
+            // Validate feed
+            const feed = await fetchAndParseRSS(body.url);
+            if (!feed) return Response.json({ error: 'Invalid RSS feed' }, { status: 400 });
+
+            const id = crypto.randomUUID();
+            this.ctx.storage.sql.exec(
+                "INSERT INTO channels (id, name, type, feed_url, created_at) VALUES (?, ?, 'rss', ?, ?)",
+                id, body.name, body.url, Date.now()
+            );
+
+            // Trigger immediate poll
+            this.ctx.waitUntil(this.pollRSSFeeds());
+
+            return Response.json({ success: true, id, feedTitle: feed.title });
+        }
+
+        if (request.method === 'DELETE') {
+            const id = url.searchParams.get('id');
+            if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
+            this.ctx.storage.sql.exec("DELETE FROM channels WHERE id = ? AND type = 'rss'", id);
+            return Response.json({ success: true });
+        }
+
+        return new Response('Method not allowed', { status: 405 });
+    }
+
+    // Webhook Handlers
+    async handleWebhook(request: Request, type: 'generic' | 'discord' | 'slack'): Promise<Response> {
+        if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
+
+        try {
+            const body = await request.json() as any;
+            let ingestData: { chatId: string, title: string, text: string } | null = null;
+
+            if (type === 'generic') {
+                if (!body.text && !body.content) return Response.json({ error: 'Missing text or content' }, { status: 400 });
+                ingestData = {
+                    chatId: body.source_id || 'webhook-generic',
+                    title: body.source_name || 'Generic Webhook',
+                    text: body.text || body.content
+                };
+            }
+
+            if (type === 'discord') {
+                // Handle Discord webhook payload
+                if (!body.content && (!body.embeds || body.embeds.length === 0)) {
+                    return Response.json({ status: 'ignored', reason: 'empty' });
+                }
+                const text = [body.content, ...(body.embeds?.map((e: any) => `${e.title || ''}\n${e.description || ''}`) || [])].join('\n').trim();
+                ingestData = {
+                    chatId: body.guild_id || body.channel_id || 'webhook-discord',
+                    title: body.username || 'Discord Webhook',
+                    text
+                };
+            }
+
+            if (type === 'slack') {
+                // Slack Challenge
+                if (body.type === 'url_verification') {
+                    return Response.json({ challenge: body.challenge });
+                }
+
+                // Slack Event
+                if (body.event && body.event.type === 'message' && !body.event.bot_id) {
+                    ingestData = {
+                        chatId: body.team_id || 'webhook-slack',
+                        title: 'Slack Webhook',
+                        text: body.event.text
+                    };
+                } else {
+                    return Response.json({ status: 'ignored', reason: 'unsupported_event' });
+                }
+            }
+
+            if (ingestData) {
+                await this.handleIngestInternal(ingestData);
+                return Response.json({ success: true });
+            }
+
+            return Response.json({ error: 'Could not process payload' }, { status: 400 });
+        } catch (e) {
+            return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+        }
     }
 
     async handleIngest(request: Request): Promise<Response> {
@@ -169,6 +669,19 @@ export class ContentDO extends DurableObject<Env> {
     private async handleIngestInternal(body: any): Promise<string> {
         const id = crypto.randomUUID();
 
+        // Deduplication: Calculate SHA-256 hash of content
+        const msgBuffer = new TextEncoder().encode(body.text);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const contentHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+        // Check if duplicate exists
+        const existing = this.ctx.storage.sql.exec('SELECT id FROM content_items WHERE content_hash = ?', contentHash).toArray();
+        if (existing.length > 0) {
+            console.log(`[ContentRefinery] Duplicate signal detected (Hash: ${contentHash}). Skipping.`);
+            return existing[0].id as string;
+        }
+
         // Auto-register channel
         const channels = this.ctx.storage.sql.exec('SELECT id FROM channels WHERE id = ?', body.chatId).toArray();
         if (channels.length === 0) {
@@ -176,8 +689,8 @@ export class ContentDO extends DurableObject<Env> {
         }
 
         this.ctx.storage.sql.exec(
-            'INSERT INTO content_items (id, source_id, source_name, raw_text, created_at) VALUES (?, ?, ?, ?, ?)',
-            id, body.chatId, body.title, body.text, Date.now()
+            'INSERT INTO content_items (id, source_id, source_name, raw_text, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+            id, body.chatId, body.title, body.text, contentHash, Date.now()
         );
 
         await this.ctx.storage.setAlarm(Date.now() + 5000);
@@ -185,7 +698,51 @@ export class ContentDO extends DurableObject<Env> {
     }
 
     async alarm() {
+        await this.pollRSSFeeds();
         await this.processBatch();
+    }
+
+    private async pollRSSFeeds() {
+        const feeds = this.ctx.storage.sql.exec("SELECT * FROM channels WHERE type = 'rss'").toArray() as any[];
+        for (const feed of feeds) {
+            // Rate limit: Poll every 15 mins per feed
+            if (feed.last_ingested_at && Date.now() - feed.last_ingested_at < 15 * 60 * 1000) continue;
+
+            console.log(`[ContentRefinery] Polling RSS: ${feed.name}`);
+            const data = await fetchAndParseRSS(feed.feed_url);
+            if (data && data.items) {
+                let newCount = 0;
+                for (const item of data.items) {
+                    // Check logic similar to handleIngestInternal but slightly adapted
+                    const contentValues = {
+                        chatId: feed.id,
+                        title: feed.name,
+                        text: `${item.title}\n\n${item.description}\n\n${item.link}`
+                    };
+
+                    // Deduplication: Calculate SHA-256 hash
+                    const msgBuffer = new TextEncoder().encode(contentValues.text);
+                    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+                    const hashArray = Array.from(new Uint8Array(hashBuffer));
+                    const contentHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+                    const existing = this.ctx.storage.sql.exec('SELECT id FROM content_items WHERE content_hash = ?', contentHash).toArray();
+
+                    if (existing.length === 0) {
+                        const id = crypto.randomUUID();
+                        this.ctx.storage.sql.exec(
+                            'INSERT INTO content_items (id, source_id, source_name, raw_text, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+                            id, feed.id, feed.name, contentValues.text, contentHash, Date.now()
+                        );
+                        newCount++;
+                    }
+                }
+
+                this.ctx.storage.sql.exec('UPDATE channels SET last_ingested_at = ?, success_count = success_count + ? WHERE id = ?', Date.now(), newCount, feed.id);
+            } else {
+                this.ctx.storage.sql.exec('UPDATE channels SET failure_count = failure_count + 1 WHERE id = ?', feed.id);
+            }
+        }
     }
 
     private async processBatch() {
@@ -205,7 +762,17 @@ export class ContentDO extends DurableObject<Env> {
 
     private async analyzeSourceBatch(sourceId: string, items: any[]) {
         const texts = items.map(i => `[ID: ${i.id}] ${i.raw_text}`).join('\n---\n');
-        const systemPrompt = `You are an Institutional-Grade Financial Signal Extractor. Detect ANY market-relevant information. Output valid JSON array. Return [] only if NO financial data.`;
+        const systemPrompt = `You are an Institutional-Grade Financial Signal Extractor. Detect ANY market-relevant information. 
+    Output valid JSON array of objects. Each object must have: 
+    - summary: Concise summary 
+    - relevance_score: 0-100
+    - is_urgent: boolean
+    - sentiment: "positive" | "negative" | "neutral"
+    - tickers: array of strings (e.g. ["BTC", "AAPL"])
+    - tags: array of strings (e.g. ["macro", "crypto", "earnings", "merger"])
+    - triples: array of objects { subject: string, predicate: string, object: string } (e.g. { "subject": "Bitcoin", "predicate": "reached", "object": "all-time high" })
+    - source_ids: array of IDs from input that contributed to this signal
+    Return [] only if NO financial data.`;
 
         try {
             const response = await fetch(
@@ -235,7 +802,38 @@ export class ContentDO extends DurableObject<Env> {
                     await this.notifySignal(intel, sourceId, items[0].source_name);
                     if (Array.isArray(intel.source_ids)) {
                         for (const sid of intel.source_ids) {
-                            this.ctx.storage.sql.exec('UPDATE content_items SET is_signal = 1 WHERE id = ?', sid);
+                            this.ctx.storage.sql.exec('UPDATE content_items SET is_signal = 1, tags = ? WHERE id = ?', JSON.stringify(intel.tags || []), sid);
+                        }
+                    }
+                    // Process Triples
+                    if (Array.isArray(intel.triples)) {
+                        for (const triple of intel.triples) {
+                            if (triple.subject && triple.predicate && triple.object) {
+                                // Insert Nodes
+                                this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO graph_nodes (id, label, type, last_seen, sentiment_score, velocity) VALUES (?, ?, 'entity', ?, 0, 0)`, triple.subject, triple.subject, Date.now());
+                                this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO graph_nodes (id, label, type, last_seen, sentiment_score, velocity) VALUES (?, ?, 'entity', ?, 0, 0)`, triple.object, triple.object, Date.now());
+
+                                // Map sentiment to score
+                                let sentScore = 0;
+                                if (intel.sentiment === 'positive') sentScore = 1;
+                                if (intel.sentiment === 'negative') sentScore = -1;
+
+                                // Update Node Stats (Importance, Sentiment, Velocity)
+                                this.ctx.storage.sql.exec(`
+                                    UPDATE graph_nodes 
+                                    SET importance = importance + 0.1, 
+                                        velocity = velocity + 1,
+                                        sentiment_score = sentiment_score + ?,
+                                        last_seen = ? 
+                                    WHERE id IN (?, ?)
+                                `, sentScore, Date.now(), triple.subject, triple.object);
+
+                                // Insert/Update Edge
+                                this.ctx.storage.sql.exec(`
+                                    INSERT INTO graph_edges (source, target, relation, weight, last_seen) VALUES (?, ?, ?, 1.0, ?)
+                                    ON CONFLICT(source, target, relation) DO UPDATE SET weight = weight + 0.5, last_seen = excluded.last_seen
+                                `, triple.subject, triple.object, triple.predicate, Date.now());
+                            }
                         }
                     }
                 }
