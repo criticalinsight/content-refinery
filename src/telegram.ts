@@ -190,7 +190,7 @@ export class TelegramManager {
                     media: message
                 });
             }
-        }, new NewMessage({}));
+        }, new NewMessage({ incoming: true, outgoing: true }));
 
         this.isListening = true;
     }
