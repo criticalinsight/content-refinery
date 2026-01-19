@@ -646,22 +646,28 @@ export class ContentDO extends DurableObject<Env> {
             return Response.json({ items });
         }
 
+        if (url.pathname === '/knowledge/mark-synced') {
+            const body = await request.json() as any;
+            if (Array.isArray(body.ids)) {
+                for (const id of body.ids) this.ctx.storage.sql.exec('UPDATE content_items SET synced_to_graph = 1 WHERE id = ?', id);
+            }
+            return Response.json({ success: true });
+        }
+
         if (url.pathname === '/knowledge/graph') {
             const nodes = this.ctx.storage.sql.exec('SELECT * FROM graph_nodes').toArray();
             const links = this.ctx.storage.sql.exec('SELECT * FROM graph_edges').toArray();
             return Response.json({ nodes, links });
         }
 
+        if (url.pathname === '/knowledge/alpha') return this.handleAlpha(request);
+        if (url.pathname === '/knowledge/narratives') return this.handleNarratives(request);
+
         return this.sendError('Endpoint not found', 404);
     }
 
     private async handleRSS(request: Request, url: URL): Promise<Response> {
         if (request.method === 'GET') {
-            const id = url.searchParams.get('id');
-            if (id) {
-                const feed = this.ctx.storage.sql.exec("SELECT * FROM channels WHERE id = ?", id).one();
-                return Response.json({ feed });
-            }
             const feeds = this.ctx.storage.sql.exec("SELECT * FROM channels WHERE type = 'rss'").toArray();
             return Response.json({ feeds });
         }
@@ -686,27 +692,14 @@ export class ContentDO extends DurableObject<Env> {
 
         return new Response('Method not allowed', { status: 405 });
     }
-    if(url.pathname === '/knowledge/mark-synced') {
-    const body = await request.json() as any;
-    if (Array.isArray(body.ids)) {
-        for (const id of body.ids) this.ctx.storage.sql.exec('UPDATE content_items SET synced_to_graph = 1 WHERE id = ?', id);
-    }
-    return Response.json({ success: true });
-}
-if (url.pathname === '/knowledge/graph') return this.handleGraph(request);
-if (url.pathname === '/knowledge/alpha') return this.handleAlpha(request);
-if (url.pathname === '/knowledge/narratives') return this.handleNarratives(request);
-
-return this.sendError('Knowledge endpoint not found', 404);
-    }
 
     // Alpha API
-    async handleAlpha(request: Request): Promise < Response > {
-    if(request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+    async handleAlpha(request: Request): Promise<Response> {
+        if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
 
-    // Alpha Calculation: (Importance * 0.5) + (Sentiment * 2.0) + (Velocity * 1.5)
-    // We normalize on read for the leaderboard
-    const alphaNodes = this.ctx.storage.sql.exec(`
+        // Alpha Calculation: (Importance * 0.5) + (Sentiment * 2.0) + (Velocity * 1.5)
+        // We normalize on read for the leaderboard
+        const alphaNodes = this.ctx.storage.sql.exec(`
             SELECT id, label, importance, sentiment_score, velocity,
             (importance * 0.5 + sentiment_score * 2.0 + velocity * 1.5) as alpha_score
             FROM graph_nodes 
@@ -715,61 +708,39 @@ return this.sendError('Knowledge endpoint not found', 404);
             LIMIT 10
         `).toArray() as any[];
 
-    return Response.json({ alphaNodes });
-}
+        return Response.json({ alphaNodes });
+    }
 
     // Narratives API
-    async handleNarratives(request: Request): Promise < Response > {
-    if(request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+    async handleNarratives(request: Request): Promise<Response> {
+        if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
 
-    const cached = this.getCache('narrative');
-    if(cached) return Response.json(cached);
+        const cached = this.getCache('narrative');
+        if (cached) return Response.json(cached);
 
-    const narratives = this.ctx.storage.sql.exec(`
+        const narratives = this.ctx.storage.sql.exec(`
             SELECT * FROM narratives 
             ORDER BY created_at DESC 
             LIMIT 5
         `).toArray() as any[];
 
-    const responseData = {
-        narratives: narratives.map(n => ({
-            ...n,
-            signals: JSON.parse(n.signals)
-        }))
-    };
+        // Validate feed
+        const feed = await fetchAndParseRSS(body.url);
+        if (!feed) return Response.json({ error: 'Invalid RSS feed' }, { status: 400 });
 
-    this.setCache('narrative', responseData);
-    return Response.json(responseData);
-}
+        const id = crypto.randomUUID();
+        this.ctx.storage.sql.exec(
+            "INSERT INTO channels (id, name, type, feed_url, created_at) VALUES (?, ?, 'rss', ?, ?)",
+            id, body.name, body.url, Date.now()
+        );
 
-    // RSS Management Endpoints
-    async handleRSS(request: Request, url: URL): Promise < Response > {
-    if(request.method === 'GET') {
-    const feeds = this.ctx.storage.sql.exec("SELECT * FROM channels WHERE type = 'rss'").toArray();
-    return Response.json({ feeds });
-}
+        // Trigger immediate poll
+        this.ctx.waitUntil(this.pollRSSFeeds());
 
-if (request.method === 'POST') {
-    const body = await request.json() as any;
-    if (!body.url || !body.name) return Response.json({ error: 'Missing url or name' }, { status: 400 });
+        return Response.json({ success: true, id, feedTitle: feed.title });
+    }
 
-    // Validate feed
-    const feed = await fetchAndParseRSS(body.url);
-    if (!feed) return Response.json({ error: 'Invalid RSS feed' }, { status: 400 });
-
-    const id = crypto.randomUUID();
-    this.ctx.storage.sql.exec(
-        "INSERT INTO channels (id, name, type, feed_url, created_at) VALUES (?, ?, 'rss', ?, ?)",
-        id, body.name, body.url, Date.now()
-    );
-
-    // Trigger immediate poll
-    this.ctx.waitUntil(this.pollRSSFeeds());
-
-    return Response.json({ success: true, id, feedTitle: feed.title });
-}
-
-if (request.method === 'DELETE') {
+    if(request.method === 'DELETE') {
     const id = url.searchParams.get('id');
     if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
     this.ctx.storage.sql.exec("DELETE FROM channels WHERE id = ? AND type = 'rss'", id);
