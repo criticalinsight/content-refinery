@@ -856,6 +856,34 @@ export class ContentDO extends DurableObject<Env> {
             return Response.json({ success: true, message: 'All items queued for reprocessing' });
         }
 
+        if (url.pathname === '/admin/purge' && request.method === 'POST') {
+            const { source_id, keyword, dry_run } = await request.json() as any;
+            let deleted = 0;
+
+            if (source_id) {
+                if (dry_run) {
+                    const count = this.ctx.storage.sql.exec('SELECT COUNT(*) as c FROM content_items WHERE source_id = ?', source_id).one() as any;
+                    deleted = count?.c || 0;
+                } else {
+                    this.ctx.storage.sql.exec('DELETE FROM content_items WHERE source_id = ?', source_id);
+                    // Check if actually deleted? D1 exec doesn't return rowsAffected clearly in all bindings, assuming success or separate count.
+                    // For accuracy let's trust the command.
+                    deleted = 1; // Placeholder as exact rowsAffected might need extra query
+                }
+            } else if (keyword) {
+                if (dry_run) {
+                    const count = this.ctx.storage.sql.exec('SELECT COUNT(*) as c FROM content_items WHERE raw_text LIKE ?', `%${keyword}%`).one() as any;
+                    deleted = count?.c || 0;
+                } else {
+                    this.ctx.storage.sql.exec('DELETE FROM content_items WHERE raw_text LIKE ?', `%${keyword}%`);
+                    deleted = 1;
+                }
+            } else {
+                return this.sendError('Missing source_id or keyword');
+            }
+            return Response.json({ success: true, deleted: dry_run ? deleted : 'Executed', mode: dry_run ? 'Dry Run' : 'Live' });
+        }
+
         if (url.pathname === '/admin/backfill' && request.method === 'POST') {
             const { limit = 100, chatId } = await request.json() as any;
             const tg = await this.ensureTelegram();
