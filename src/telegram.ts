@@ -163,20 +163,29 @@ export class TelegramManager {
             const message = event.message;
             if (!message) return;
 
+            // Extract actual peer ID (channelId, chatId, or userId)
+            const peer = message.peerId;
+            // Debug: Log the actual structure of peerId
+            console.log('[TelegramManager] peerId structure:', JSON.stringify(peer, (_, v) => typeof v === 'bigint' ? v.toString() : v));
+            // Gram.js stores IDs as BigInt in some versions, so we need to handle that
+            const chatId = String(peer?.channelId ?? peer?.chatId ?? peer?.userId ?? 'unknown');
+
             // Handle Text
             if (message.message) {
                 await onMessage({
-                    chatId: message.peerId?.toString(),
+                    chatId,
+                    messageId: message.id,
                     title: "Telegram Live",
                     text: message.message
                 });
             }
 
-            // Handle Media (Voice/Audio/Photo)
+            // Handle Media (Voice/Audio/Photo/Document)
             else if (message.media && (message.media instanceof Api.MessageMediaDocument || message.media instanceof Api.MessageMediaPhoto)) {
                 // Pass the whole message for downloading later
                 await onMessage({
-                    chatId: message.peerId?.toString(),
+                    chatId,
+                    messageId: message.id,
                     title: "Telegram Live",
                     media: message
                 });

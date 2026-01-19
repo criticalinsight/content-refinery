@@ -957,6 +957,13 @@ export class ContentDO extends DurableObject<Env> {
         if (url.pathname === '/process') { await this.processBatch(); return Response.json({ success: true }); }
         if (url.pathname === '/admin/janitor') { await this.janitor(); return Response.json({ success: true }); }
         if (url.pathname === '/admin/reflect') { await this.reflect(); return Response.json({ success: true }); }
+        if (url.pathname === '/admin/digest') {
+            const reqBody = await request.clone().json().catch(() => ({})) as any;
+            const result = await this.generateFinancialDigest(reqBody.sourceIds);
+            return Response.json(result);
+        }
+
+
         if (url.pathname === '/sql') {
             const body = await request.json() as any;
             return Response.json({ result: this.ctx.storage.sql.exec(body.sql, ...(body.params || [])).toArray() });
@@ -1032,28 +1039,53 @@ export class ContentDO extends DurableObject<Env> {
         // Phase 16: Voice & Image Alpha
         if (body.media) {
             try {
-                const tg = await this.ensureTelegram();
-                const buffer = await tg.downloadMedia(body.media);
-                if (buffer) {
-                    const media = body.media.media;
-                    // Check if photo (Gram.js types or property check)
-                    if (media && (media.photo || media.className === 'MessageMediaPhoto')) {
-                        const ocrText = await this.analyzeImage(new Uint8Array(buffer));
-                        const scrubbedOcr = await this.scrubSensitiveContent(ocrText);
-                        if (scrubbedOcr === null) return null;
-                        text = (text ? text + '\n' : '') + scrubbedOcr;
-                        console.log(`[ContentRefinery] Image OCR complete: "${text.substring(0, 100)}..."`);
-                    } else {
-                        const audioText = await this.transcribeAudio(new Uint8Array(buffer));
-                        const scrubbedAudio = await this.scrubSensitiveContent(audioText);
-                        if (scrubbedAudio === null) return null;
-                        text = (text ? text + '\n' : '') + scrubbedAudio;
-                        console.log(`[ContentRefinery] Voice transcribed: "${text.substring(0, 100)}..."`);
+                // Phase 17 Optimization: Identify PDF BEFORE downloading to prevent timeouts
+                const media = body.media.media;
+                const doc = media?.document;
+                const isDocument = media?.className === 'MessageMediaDocument';
+                const isPDF = isDocument && (
+                    doc?.mimeType === 'application/pdf' ||
+                    doc?.attributes?.some((attr: any) =>
+                        attr.fileName?.toLowerCase().endsWith('.pdf') ||
+                        attr.mimeType === 'application/pdf'
+                    )
+                );
+
+                if (isPDF) {
+                    console.log('[ContentRefinery] ✅ PDF detected via metadata (skipping initial download)');
+                    text = (text ? text + '\n' : '') + "[PDF DOCUMENT]";
+                } else {
+                    // Only download if it's NOT a PDF (e.g. Image/Audio)
+                    const tg = await this.ensureTelegram();
+                    const buffer = await tg.downloadMedia(body.media);
+                    if (buffer) {
+                        const mediaDetails = JSON.stringify({
+                            className: media?.className,
+                            hasPhoto: !!media?.photo,
+                            hasDocument: !!media?.document,
+                            mimeType: media?.document?.mimeType,
+                            attributes: media?.document?.attributes?.map((a: any) => ({ type: a.className, fileName: a.fileName, mimeType: a.mimeType }))
+                        }, null, 2);
+
+                        // Debug log
+                        this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, stack, created_at) VALUES (?, ?, ?, ?, ?)",
+                            crypto.randomUUID(), "DEBUG_MEDIA", mediaDetails, "handleIngestInternal", Date.now());
+
+                        if (media && (media.photo || media.className === 'MessageMediaPhoto')) {
+                            const ocrText = await this.analyzeImage(new Uint8Array(buffer));
+                            const scrubbedOcr = await this.scrubSensitiveContent(ocrText);
+                            if (scrubbedOcr === null) return null;
+                            text = (text ? text + '\n' : '') + scrubbedOcr;
+                        } else {
+                            const audioText = await this.transcribeAudio(new Uint8Array(buffer));
+                            const scrubbedAudio = await this.scrubSensitiveContent(audioText);
+                            if (scrubbedAudio === null) return null;
+                            text = (text ? text + '\n' : '') + scrubbedAudio;
+                        }
                     }
                 }
             } catch (e) {
                 console.error("[ContentRefinery] Media processing failed:", e);
-                // We'll continue with empty text or just fail this item
             }
         }
 
@@ -1083,9 +1115,12 @@ export class ContentDO extends DurableObject<Env> {
             this.ctx.storage.sql.exec('INSERT INTO channels (id, name, created_at) VALUES (?, ?, ?)', body.chatId, body.title, Date.now());
         }
 
+        // Store source_id as JSON with both chatId and messageId for PDF retrieval
+        const sourceId = JSON.stringify({ chatId: body.chatId, messageId: body.messageId });
+
         this.ctx.storage.sql.exec(
             'INSERT INTO content_items (id, source_id, source_name, raw_text, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-            id, body.chatId, body.title, text, contentHash, Date.now()
+            id, sourceId, body.title, text, contentHash, Date.now()
         );
 
         this.invalidateCache();
@@ -1371,7 +1406,16 @@ You must return a JSON array of objects. Each object must have the following key
 
         try {
             // 3. Encrypt if necessary (Private Feed logic)
-            let forwardedIntel = intel;
+            let forwardedIntel = { ...intel };
+
+            // Format for Trelbot Display (Combine fields into summary)
+            if (intel.fact_check || intel.analysis) {
+                const parts = [intel.summary];
+                if (intel.fact_check) parts.push(`📊 <b>FACT CHECK:</b>\n${intel.fact_check}`);
+                if (intel.analysis) parts.push(`🧠 <b>EPISTEMIC ANALYSIS:</b>\n${intel.analysis}`);
+                forwardedIntel.summary = parts.join('\n\n');
+            }
+
             if (intel.metadata?.privacy === 'encrypted') {
                 forwardedIntel = await this.encryptSignal(intel);
             }
@@ -1824,11 +1868,150 @@ You must return a JSON array of objects. Each object must have the following key
 
 
 
-            const tg = await this.ensureTelegram();
-            await tg.sendMessage(ALPHA_CHANNEL, message);
-            console.log(`[ContentRefinery] Signal mirrored to ${ALPHA_CHANNEL}`);
+            try {
+                const tg = await this.ensureTelegram();
+                await tg.sendMessage(ALPHA_CHANNEL, message);
+                console.log(`[ContentRefinery] Signal mirrored to ${ALPHA_CHANNEL}`);
+            } catch (e) {
+                console.error('[ContentRefinery] Failed to mirror signal:', e);
+            }
         } catch (e) {
             await this.logger.log('SignalMirror', e);
+        }
+    }
+
+    /**
+     * Phase 17: Financial PDF Digest
+     * Ingests FT/WSJ PDFs and synthesizes them using Gemini 1.5 Pro.
+     */
+    /**
+     * Phase 17: PDF Signal Extraction
+     * Extracts signals from PDFs using Gemini 2.0 Flash.
+     */
+    private async generateFinancialDigest(sourceIds?: string[]) {
+        const SYSTEM_PROMPT = `
+Role: You are a Senior Equity Analyst and Portfolio Manager with a specialty in forensic fact-checking.
+Task: Analyze the provided document (PDF) and extract every distinct investment signal, market insight, or macroeconomic trend.
+Output: A JSON array of self-contained signal objects.
+
+Structure per Signal:
+{
+  "summary": "10-sentence elevator pitch including the verified facts and strongest thesis.",
+  "fact_check": "Verification details.",
+  "analysis": "Epistemic analysis (variant perception, logic check).",
+  "relevance_score": 0-100,
+  "is_urgent": boolean,
+  "sentiment": "bullish" | "bearish" | "neutral",
+  "tickers": ["BTC", "AAPL"],
+  "tags": ["macro", "crypto"],
+  "triples": [{"subject": "Entity", "predicate": "Action", "object": "Target"}]
+}
+
+Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
+`;
+
+        try {
+            console.log('[ContentRefinery] Starting PDF Signal Extraction...');
+
+            // 1. Find recent items with PDF flag
+            let items: any[] = [];
+            if (sourceIds && sourceIds.length > 0) {
+                const placeholders = sourceIds.map(() => '?').join(',');
+                items = this.ctx.storage.sql.exec(`SELECT * FROM content_items WHERE id IN (${placeholders})`, ...sourceIds).toArray();
+            } else {
+                items = this.ctx.storage.sql.exec(
+                    `SELECT * FROM content_items WHERE created_at > ? AND raw_text LIKE '%[PDF DOCUMENT]%' ORDER BY created_at DESC LIMIT 5`,
+                    Date.now() - 24 * 60 * 60 * 1000
+                ).toArray();
+            }
+
+            if (items.length === 0) return { success: false, message: 'No PDFs found' };
+
+            const tg = await this.ensureTelegram();
+
+            for (const item of items) {
+                if (!item.source_id) continue;
+
+                try {
+                    // Parse source_id JSON to get chatId and messageId
+                    let chatId: string, messageId: number | null = null;
+                    try {
+                        const parsed = JSON.parse(item.source_id);
+                        chatId = parsed.chatId;
+                        messageId = parsed.messageId;
+                    } catch {
+                        // Legacy format: source_id is just the chatId string
+                        chatId = item.source_id;
+                    }
+
+                    // Fetch specific message by ID if available, otherwise search recent messages
+                    let match: any = null;
+                    if (messageId) {
+                        const messages = await (tg as any).getMessages(chatId, { ids: [messageId] });
+                        match = messages?.[0];
+                    } else {
+                        const messages = await (tg as any).getMessages(chatId, { limit: 20 });
+                        match = messages.find((m: any) => m.media && m.media.document && m.media.document.mimeType === 'application/pdf');
+                    }
+
+                    if (match && match.media?.document?.mimeType === 'application/pdf') {
+                        console.log(`[ContentRefinery] Processing PDF from ${item.source_name}...`);
+                        const buffer = await tg.downloadMedia(match);
+                        if (!buffer) continue;
+
+                        let binary = '';
+                        const bytes = new Uint8Array(buffer);
+                        for (let i = 0; i < bytes.byteLength; i += 32768) {
+                            binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
+                        }
+                        const b64 = btoa(binary);
+
+                        const response = await fetch(
+                            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${this.env.GEMINI_API_KEY}`,
+                            {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    contents: [{
+                                        role: 'user',
+                                        parts: [
+                                            { inlineData: { mimeType: "application/pdf", data: b64 } },
+                                            { text: "This is a complete newspaper (Financial Times or Wall Street Journal). Extract EVERY DISTINCT investment signal, article, or market insight as a SEPARATE entry in your JSON array. I expect at least 15-30 signals from a full newspaper. Do NOT summarize the entire paper into one signal - each article, headline, or insight should be its own signal object. Be exhaustive." }
+                                        ]
+                                    }],
+                                    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+                                    generationConfig: { temperature: 0.2, response_mime_type: "application/json" }
+                                })
+                            }
+                        );
+
+                        const result = await response.json() as any;
+                        const outputText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                        if (outputText) {
+                            const signals = JSON.parse(outputText);
+                            console.log(`[ContentRefinery] Extracted ${signals.length} signals from PDF.`);
+
+                            for (const signal of signals) {
+                                if (signal.relevance_score > 40) {
+                                    await this.notifySignal(signal, item.source_id, item.source_name);
+                                    if (signal.relevance_score > 80) {
+                                        await this.mirrorSignal(signal, item.source_id, item.source_name);
+                                    }
+                                }
+                            }
+
+                            this.ctx.storage.sql.exec("UPDATE content_items SET processed_json = ? WHERE id = ?", JSON.stringify({ pdf_processed: true, signal_count: signals.length }), item.id);
+                        }
+                    }
+                } catch (e) {
+                    console.error(`[ContentRefinery] PDF Error for ${item.id}:`, e);
+                }
+            }
+            return { success: true, message: 'PDF Extraction Complete' };
+        } catch (e) {
+            console.error('Digest Error:', e);
+            throw e;
         }
     }
 }

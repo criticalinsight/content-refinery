@@ -9,7 +9,7 @@ routes = [
 ]
 
 [triggers]
-crons = ["0 5 * * *", "0 17 * * *"]
+crons = ["*/5 * * * *", "0 5 * * *", "0 17 * * *"]
 
 [observability]
 enabled = true
