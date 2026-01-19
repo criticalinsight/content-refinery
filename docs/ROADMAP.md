@@ -36,6 +36,10 @@
 3. [x] **Backfill & Historical Processing**:
     - Ability to ingest historical Telegram messages for context.
     - `/admin/backfill` endpoint implemented.
+4. [x] **Enhanced Analyst Persona** (Senior Equity Analyst):
+    - **Forensic Fact-Checking**: Verifies claims against trusted sources.
+    - **Epistemic Analysis**: Validates logical soundness and identifies biases.
+    - **High-Conviction Pitch**: Synthesizes insights into a 10-sentence elevator pitch.
 
 ## 🔮 Phase 18: Predictive Alpha (Next)
 *Objective: Scoring and ranking assets based on graph centrality and sentiment.*
