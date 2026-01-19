@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Activity, Shield, Cpu, Zap, Search, Bell, History, TrendingUp, MessageCircle, X, Phone, Key, Lock, QrCode, Smartphone, Settings, Plus, Trash2, Rss, Hash, Globe, Share2, BookOpen, Clock } from 'lucide-react';
+import { Activity, Shield, Cpu, Zap, Search, Bell, TrendingUp, MessageCircle, X, Phone, Key, Lock, QrCode, Smartphone, Settings, Plus, Trash2, Rss, Hash, Globe, Share2, BookOpen, Clock } from 'lucide-react';
 import ForceGraph2D from 'react-force-graph-2d';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -827,11 +827,12 @@ const App: React.FC = () => {
         const intel = payload.data.intel;
         setSignals(prev => [{
           id: crypto.randomUUID(),
-          source: payload.data.sourceName,
+          source_id: payload.data.sourceId || '',
+          source_name: payload.data.sourceName,
           summary: intel.summary,
           relevance: intel.relevance_score,
           sentiment: intel.sentiment,
-          timestamp: Date.now(),
+          created_at: Date.now(),
           urgent: intel.is_urgent,
           tags: intel.tags || []
         }, ...prev].slice(0, 50));
