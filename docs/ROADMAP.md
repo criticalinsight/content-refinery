@@ -19,6 +19,8 @@
     - Forward `ErrorLogger` critical failures directly to the Admin DM.
 8. [x] **Voice-to-Alpha**:
     - Automatically transcribe voice notes and ingest as market signals.
+9. [x] **Omni-Alpha (Gemini OCR)**:
+    - Automatically analyze photos and screenshots for market intelligence.
 
 ---
 
