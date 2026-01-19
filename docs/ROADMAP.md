@@ -1,6 +1,6 @@
 # Content Refinery - Product Roadmap
 
-**Current Version**: 1.5 (Production)  
+**Current Version**: 1.6 (Production)  
 **Last Updated**: 2026-01-19
 
 ---
@@ -60,6 +60,26 @@
 
 ---
 
+## ✅ Phase 10: Advanced AI Correlation Analysis (Complete)
+*Deployed: 2026-01-19*
+
+- [x] **Correlation Engine**: Automatically links signals based on shared graph entities.
+- [x] **Narrative Extraction**: AI synthesizes clusters of related signals into "Market Narratives".
+- [x] **Anomaly Detection**: Identifies "Signal vs Noise" outliers that contradict narratives.
+- [x] **Narrative Dashboard**: Visual UI for exploring high-level synthesized insights.
+
+---
+
+## ✅ Phase 11: System Hardening & Tech Debt (Complete)
+*Deployed: 2026-01-19*
+
+- [x] **Proactive Persistence**: Hardened Telegram session saving via persistent callbacks.
+- [x] **Listener Protection**: Guarded against duplicate event handlers and memory leaks.
+- [x] **Logic Consolidation**: Shared `generateContentHash` helper for Telegram & RSS flows.
+- [x] **Task Isolation**: Error-isolated background processing in `alarm()` handler.
+
+---
+
 ## 🚧 Phase 9: Collaboration & Multi-User (Next)
 *Target: Q1 2026*
 
@@ -70,13 +90,7 @@
 
 ---
 
-## 🚧 Phase 10: Advanced AI Correlation Analysis (Active)
-*Target: Q1 2026*
-
-- [ ] **Correlation Engine**: Automatically links signals based on shared graph entities.
-- [ ] **Narrative Extraction**: AI synthesizes clusters of related signals into "Market Narratives".
-- [ ] **Anomaly Detection**: Identifies "Signal vs Noise" outliers that contradict narratives.
-- [ ] **Narrative Dashboard**: Visual UI for exploring high-level synthesized insights.
+## 🚧 Future Strategic Milestones
 
 ### Integration APIs
 - [ ] Slack/Teams notifications
@@ -91,7 +105,7 @@
 
 ---
 
-## Technical Debt & Improvements
+## Technical Debt & Improvements (Ongoing)
 
 ### Performance
 - [ ] Implement signal batching for high-volume sources
@@ -102,7 +116,6 @@
 - [ ] Add comprehensive test suite
 - [ ] Implement error tracking (Sentry/Honeycomb)
 - [ ] Create deployment CI/CD pipeline
-- [ ] Documentation improvements
 
 ### Security
 - [ ] Add rate limiting to all endpoints
@@ -115,6 +128,7 @@
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 1.6 | 2026-01-19 | Narrative Engine, Persistence Hardening |
 | 1.5 | 2026-01-19 | QR login, 2FA, custom domains |
 | 1.4 | 2026-01-19 | Telegram integration |
 | 1.3 | 2026-01-18 | Premium dashboard |
