@@ -1,0 +1,446 @@
+
+ ⛅️ wrangler 4.59.2
+───────────────────
+Your Worker has access to the following bindings:
+Binding                                  Resource             Mode
+env.CONTENT_DO (ContentDO)               Durable Object       local
+env.VECTOR_INDEX (refinery_signals)      Vectorize Index      not supported
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mVectorize Index bindings do not support local development, and so parts of your Worker may not work correctly. You may be able to set `remote: true` for the binding definition in your configuration file to access a remote version of the resource.[0m
+
+
+⎔ Starting local server...
+[wrangler:info] Ready on http://localhost:8787
+[wrangler:info] GET /health 200 OK (17ms)
+[wrangler:info] GET /ws 101 Switching Protocols (12ms)
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mUncaught TypeError: Invalid WebSocket close code: 1006. Error[0m
+
+      at webSocketClose (file:///Users/brixelectronics/Documents/mac/criticalinsight_repos/content-refinery/src/ContentDO.ts:338:12)
+
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mUncaught TypeError: Invalid WebSocket close code: 1006. [0m
+
+
+[wrangler:info] GET /ws 101 Switching Protocols (4ms)
+[wrangler:info] GET /ws 101 Switching Protocols (4ms)
+[wrangler:info] GET /ws 101 Switching Protocols (4ms)
+[wrangler:info] GET /health 200 OK (10ms)
+[wrangler:info] GET /ws 101 Switching Protocols (5ms)
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mUncaught TypeError: Invalid WebSocket close code: 1006. Error[0m
+
+      at webSocketClose (file:///Users/brixelectronics/Documents/mac/criticalinsight_repos/content-refinery/src/ContentDO.ts:338:12)
+
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mUncaught TypeError: Invalid WebSocket close code: 1006. [0m
+
+
+[wrangler:info] GET /ws 101 Switching Protocols (8ms)
+[wrangler:info] GET /health 200 OK (3ms)
+[wrangler:info] GET /health 200 OK (11ms)
+[wrangler:info] GET /favicon.ico 404 Not Found (4ms)
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mUncaught TypeError: Invalid WebSocket close code: 1006. Error[0m
+
+      at webSocketClose (file:///Users/brixelectronics/Documents/mac/criticalinsight_repos/content-refinery/src/ContentDO.ts:338:12)
+
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mUncaught TypeError: Invalid WebSocket close code: 1006. [0m
+
+
+[wrangler:info] GET /ws 101 Switching Protocols (11ms)
+[wrangler:info] GET /ws 101 Switching Protocols (6ms)
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mVectorize Index bindings do not support local development, and so parts of your Worker may not work correctly. You may be able to set `remote: true` for the binding definition in your configuration file to access a remote version of the resource.[0m
+
+
+⎔ Reloading local server...
+⎔ Local server updated and ready
+Your Worker has access to the following bindings:
+Binding                                  Resource             Mode
+env.CONTENT_DO (ContentDO)               Durable Object       local
+env.VECTOR_INDEX (refinery_signals)      Vectorize Index      not supported
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mVectorize Index bindings do not support local development, and so parts of your Worker may not work correctly. You may be able to set `remote: true` for the binding definition in your configuration file to access a remote version of the resource.[0m
+
+
+⎔ Reloading local server...
+⎔ Local server updated and ready
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mBuild failed with 18 errors:[0m
+
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "fs"[0m
+  
+      node_modules/graceful-fs/graceful-fs.js:1:17:
+  [37m      1 │ var fs = require([32m'fs'[37m)
+          ╵                  [32m~~~~[0m
+  
+    The package "fs" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "util"[0m
+  
+      node_modules/graceful-fs/graceful-fs.js:6:19:
+  [37m      6 │ var util = require([32m'util'[37m)
+          ╵                    [32m~~~~~~[0m
+  
+    The package "util" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "assert"[0m
+  
+      node_modules/graceful-fs/graceful-fs.js:87:14:
+  [37m      87 │       require([32m'assert'[37m).equal(fs[gracefulQueue].length, 0)
+           ╵               [32m~~~~~~~~[0m
+  
+    The package "assert" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "stream"[0m
+  
+      node_modules/graceful-fs/legacy-streams.js:1:21:
+  [37m      1 │ var Stream = require([32m'stream'[37m).Stream
+          ╵                      [32m~~~~~~~~[0m
+  
+    The package "stream" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "constants"[0m
+  
+      node_modules/graceful-fs/polyfills.js:1:24:
+  [37m      1 │ var constants = require([32m'constants'[37m)
+          ╵                         [32m~~~~~~~~~~~[0m
+  
+    The package "constants" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "path"[0m
+  
+      node_modules/node-localstorage/LocalStorage.js:7:17:
+  [37m      7 │   path = require([32m'path'[37m);
+          ╵                  [32m~~~~~~[0m
+  
+    The package "path" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "fs"[0m
+  
+      node_modules/node-localstorage/LocalStorage.js:9:15:
+  [37m      9 │   fs = require([32m'fs'[37m);
+          ╵                [32m~~~~[0m
+  
+    The package "fs" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "events"[0m
+  
+      node_modules/node-localstorage/LocalStorage.js:11:19:
+  [37m      11 │   events = require([32m'events'[37m);
+           ╵                    [32m~~~~~~~~[0m
+  
+    The package "events" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "events"[0m
+  
+      node_modules/socks/build/client/socksclient.js:13:25:
+  [37m      13 │ const events_1 = require([32m"events"[37m);
+           ╵                          [32m~~~~~~~~[0m
+  
+    The package "events" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "net"[0m
+  
+      node_modules/socks/build/client/socksclient.js:14:20:
+  [37m      14 │ const net = require([32m"net"[37m);
+           ╵                     [32m~~~~~[0m
+  
+    The package "net" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "stream"[0m
+  
+      node_modules/socks/build/common/helpers.js:6:23:
+  [37m      6 │ const stream = require([32m"stream"[37m);
+          ╵                        [32m~~~~~~~~[0m
+  
+    The package "stream" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "net"[0m
+  
+      node_modules/socks/build/common/helpers.js:8:20:
+  [37m      8 │ const net = require([32m"net"[37m);
+          ╵                     [32m~~~~~[0m
+  
+    The package "net" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "crypto"[0m
+  
+      node_modules/telegram/CryptoFile.js:26:36:
+  [37m      26 │ const crypto = __importStar(require([32m"crypto"[37m));
+           ╵                                     [32m~~~~~~~~[0m
+  
+    The package "crypto" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "os"[0m
+  
+      node_modules/telegram/client/os.js:26:32:
+  [37m      26 │ const os = __importStar(require([32m"os"[37m));
+           │                                 [32m~~~~[37m
+           ╵                                 [32m"./os"[0m
+  
+    The package "os" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "path"[0m
+  
+      node_modules/telegram/client/path.js:6:39:
+  [37m      6 │ const path_1 = __importDefault(require([32m"path"[37m));
+          │                                        [32m~~~~~~[37m
+          ╵                                        [32m"./path"[0m
+  
+    The package "path" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "net"[0m
+  
+      node_modules/telegram/extensions/net.js:17:21:
+  [37m      17 │ __exportStar(require([32m"net"[37m), exports);
+           │                      [32m~~~~~[37m
+           ╵                      [32m"./net"[0m
+  
+    The package "net" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "util"[0m
+  
+      node_modules/telegram/inspect.js:4:21:
+  [37m      4 │ var util_1 = require([32m"util"[37m);
+          ╵                      [32m~~~~~~[0m
+  
+    The package "util" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "util"[0m
+  
+      node_modules/write-file-atomic/index.js:9:38:
+  [37m      9 │ var extend = Object.assign || require([32m'util'[37m)._extend
+          ╵                                       [32m~~~~~~[0m
+  
+    The package "util" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+  
+  
+
+
+Your Worker has access to the following bindings:
+Binding                                  Resource             Mode
+env.CONTENT_DO (ContentDO)               Durable Object       local
+env.VECTOR_INDEX (refinery_signals)      Vectorize Index      not supported
+
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mBuild failed with 18 errors:[0m
+
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "fs"[0m
+  
+      node_modules/graceful-fs/graceful-fs.js:1:17:
+  [37m      1 │ var fs = require([32m'fs'[37m)
+          ╵                  [32m~~~~[0m
+  
+    The package "fs" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "util"[0m
+  
+      node_modules/graceful-fs/graceful-fs.js:6:19:
+  [37m      6 │ var util = require([32m'util'[37m)
+          ╵                    [32m~~~~~~[0m
+  
+    The package "util" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "assert"[0m
+  
+      node_modules/graceful-fs/graceful-fs.js:87:14:
+  [37m      87 │       require([32m'assert'[37m).equal(fs[gracefulQueue].length, 0)
+           ╵               [32m~~~~~~~~[0m
+  
+    The package "assert" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "stream"[0m
+  
+      node_modules/graceful-fs/legacy-streams.js:1:21:
+  [37m      1 │ var Stream = require([32m'stream'[37m).Stream
+          ╵                      [32m~~~~~~~~[0m
+  
+    The package "stream" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "constants"[0m
+  
+      node_modules/graceful-fs/polyfills.js:1:24:
+  [37m      1 │ var constants = require([32m'constants'[37m)
+          ╵                         [32m~~~~~~~~~~~[0m
+  
+    The package "constants" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "path"[0m
+  
+      node_modules/node-localstorage/LocalStorage.js:7:17:
+  [37m      7 │   path = require([32m'path'[37m);
+          ╵                  [32m~~~~~~[0m
+  
+    The package "path" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "fs"[0m
+  
+      node_modules/node-localstorage/LocalStorage.js:9:15:
+  [37m      9 │   fs = require([32m'fs'[37m);
+          ╵                [32m~~~~[0m
+  
+    The package "fs" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "events"[0m
+  
+      node_modules/node-localstorage/LocalStorage.js:11:19:
+  [37m      11 │   events = require([32m'events'[37m);
+           ╵                    [32m~~~~~~~~[0m
+  
+    The package "events" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "events"[0m
+  
+      node_modules/socks/build/client/socksclient.js:13:25:
+  [37m      13 │ const events_1 = require([32m"events"[37m);
+           ╵                          [32m~~~~~~~~[0m
+  
+    The package "events" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "net"[0m
+  
+      node_modules/socks/build/client/socksclient.js:14:20:
+  [37m      14 │ const net = require([32m"net"[37m);
+           ╵                     [32m~~~~~[0m
+  
+    The package "net" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "stream"[0m
+  
+      node_modules/socks/build/common/helpers.js:6:23:
+  [37m      6 │ const stream = require([32m"stream"[37m);
+          ╵                        [32m~~~~~~~~[0m
+  
+    The package "stream" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "net"[0m
+  
+      node_modules/socks/build/common/helpers.js:8:20:
+  [37m      8 │ const net = require([32m"net"[37m);
+          ╵                     [32m~~~~~[0m
+  
+    The package "net" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "crypto"[0m
+  
+      node_modules/telegram/CryptoFile.js:26:36:
+  [37m      26 │ const crypto = __importStar(require([32m"crypto"[37m));
+           ╵                                     [32m~~~~~~~~[0m
+  
+    The package "crypto" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "os"[0m
+  
+      node_modules/telegram/client/os.js:26:32:
+  [37m      26 │ const os = __importStar(require([32m"os"[37m));
+           │                                 [32m~~~~[37m
+           ╵                                 [32m"./os"[0m
+  
+    The package "os" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "path"[0m
+  
+      node_modules/telegram/client/path.js:6:39:
+  [37m      6 │ const path_1 = __importDefault(require([32m"path"[37m));
+          │                                        [32m~~~~~~[37m
+          ╵                                        [32m"./path"[0m
+  
+    The package "path" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "net"[0m
+  
+      node_modules/telegram/extensions/net.js:17:21:
+  [37m      17 │ __exportStar(require([32m"net"[37m), exports);
+           │                      [32m~~~~~[37m
+           ╵                      [32m"./net"[0m
+  
+    The package "net" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "util"[0m
+  
+      node_modules/telegram/inspect.js:4:21:
+  [37m      4 │ var util_1 = require([32m"util"[37m);
+          ╵                      [32m~~~~~~[0m
+  
+    The package "util" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "util"[0m
+  
+      node_modules/write-file-atomic/index.js:9:38:
+  [37m      9 │ var extend = Object.assign || require([32m'util'[37m)._extend
+          ╵                                       [32m~~~~~~[0m
+  
+    The package "util" wasn't found on the file system but is built into node.
+    - Add the "nodejs_compat" compatibility flag to your project.
+    
+  
+  
+
+
+🪵  Logs were written to "/Users/brixelectronics/Library/Preferences/.wrangler/logs/wrangler-2026-01-18_19-44-05_187.log"
