@@ -79,7 +79,7 @@ export class ContentDO extends DurableObject<Env> {
         }
 
         const sessionStr = await this.ctx.storage.get<string>('tg_session') || "";
-        this.telegram = new TelegramManager(this.env, sessionStr, async (newSession) => {
+        this.telegram = new TelegramManager(this.env, this.ctx.storage, sessionStr, async (newSession) => {
             if (newSession) {
                 await this.ctx.storage.put('tg_session', newSession);
                 console.log("[ContentRefinery] Telegram session updated and persisted.");
