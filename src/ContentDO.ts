@@ -832,9 +832,18 @@ export class ContentDO extends DurableObject<Env> {
 
     private async handleIngestInternal(body: any): Promise<string> {
         const id = crypto.randomUUID();
+        const text = body.text || '';
+
+        // Phase 16: Slash Command Router
+        if (text.startsWith('/')) {
+            const response = await this.handleSlashCommand(text, body.chatId);
+            // Commands return a response message instead of storing content
+            console.log(`[ContentRefinery] Command executed: ${text.split(' ')[0]} -> ${response}`);
+            return `cmd:${response}`;
+        }
 
         // Deduplication: Calculate SHA-256 hash of content
-        const contentHash = await this.generateContentHash(body.text);
+        const contentHash = await this.generateContentHash(text);
 
         // Check if duplicate exists
         const existing = this.ctx.storage.sql.exec('SELECT id FROM content_items WHERE content_hash = ?', contentHash).toArray();
@@ -851,12 +860,56 @@ export class ContentDO extends DurableObject<Env> {
 
         this.ctx.storage.sql.exec(
             'INSERT INTO content_items (id, source_id, source_name, raw_text, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-            id, body.chatId, body.title, body.text, contentHash, Date.now()
+            id, body.chatId, body.title, text, contentHash, Date.now()
         );
 
         this.invalidateCache();
         await this.ctx.storage.setAlarm(Date.now() + 5000);
         return id;
+    }
+
+    /**
+     * Phase 16: Slash Command Handler
+     * Routes commands to appropriate handlers.
+     */
+    private async handleSlashCommand(text: string, chatId: string): Promise<string> {
+        const parts = text.trim().split(/\s+/);
+        const command = parts[0].toLowerCase();
+        const args = parts.slice(1);
+
+        switch (command) {
+            case '/status': {
+                const totalItems = (this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items').one() as any)?.cnt || 0;
+                const signals = (this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items WHERE is_signal = 1').one() as any)?.cnt || 0;
+                const channels = (this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM channels').one() as any)?.cnt || 0;
+                return `📊 Status: ${totalItems} items, ${signals} signals, ${channels} channels`;
+            }
+
+            case '/add': {
+                if (args.length < 2) return '❌ Usage: /add <name> <url>';
+                const name = args[0];
+                const url = args.slice(1).join(' ');
+                const feedId = crypto.randomUUID();
+                this.ctx.storage.sql.exec(
+                    "INSERT INTO channels (id, name, type, feed_url, created_at) VALUES (?, ?, 'rss', ?, ?)",
+                    feedId, name, url, Date.now()
+                );
+                return `✅ Added RSS feed: ${name}`;
+            }
+
+            case '/ignore': {
+                if (args.length === 0) return '❌ Usage: /ignore <channel_id>';
+                const targetId = args[0];
+                this.ctx.storage.sql.exec('DELETE FROM channels WHERE id = ?', targetId);
+                return `🔇 Ignored channel: ${targetId}`;
+            }
+
+            case '/help':
+                return `📖 Commands:\n/status - System stats\n/add <name> <url> - Add RSS feed\n/ignore <id> - Remove channel`;
+
+            default:
+                return `❓ Unknown command: ${command}. Try /help`;
+        }
     }
 
     private async pollRSSFeeds() {
