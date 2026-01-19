@@ -76,12 +76,18 @@ export class ContentDO extends DurableObject<Env> {
         });
         await this.telegram.connect();
 
-        // Auto-start listener if logged in
         if (await this.telegram.isLoggedIn()) {
             this.telegram.listen(async (msg) => {
                 await this.handleIngestInternal(msg);
             });
             console.log("[ContentRefinery] Live Telegram listener resumed.");
+
+            // Phase 16: Admin Alerts
+            this.logger.setNotifyCallback(async (module, message) => {
+                const ADMIN_ID = "-1003589267081"; // Fallback to alpha channel, or specific admin ID
+                const alertMsg = `🚨 <b>SYSTEM ALERT</b>\n<b>Module:</b> ${module}\n<b>Error:</b> ${message}\n<i>Refinery is continuing with reduced capacity.</i>`;
+                await this.telegram?.sendMessage(ADMIN_ID, alertMsg);
+            });
         }
 
         return this.telegram;

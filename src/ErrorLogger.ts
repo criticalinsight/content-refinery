@@ -7,12 +7,12 @@
 export class ErrorLogger {
     constructor(private storage: DurableObjectStorage) { }
 
-    /**
-     * Logs an error with context and stack trace.
-     * @param module - The module where the error occurred (e.g., 'Telegram', 'AI')
-     * @param error - The error object or string
-     * @param context - Additional metadata for debugging
-     */
+    private onCriticalError?: (module: string, message: string) => Promise<void>;
+
+    setNotifyCallback(callback: (module: string, message: string) => Promise<void>) {
+        this.onCriticalError = callback;
+    }
+
     async log(module: string, error: any, context?: any) {
         const id = crypto.randomUUID();
         const message = error instanceof Error ? error.message : String(error);
@@ -20,6 +20,10 @@ export class ErrorLogger {
         const timestamp = Date.now();
 
         console.error(`[${module}] Error: ${message}`, { context, stack });
+
+        if (this.onCriticalError) {
+            this.onCriticalError(module, message).catch(() => { });
+        }
 
         try {
             this.storage.sql.exec(
