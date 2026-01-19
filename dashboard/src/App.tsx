@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Activity, Shield, Cpu, Zap, Search, Bell, TrendingUp, MessageCircle, X, Phone, Key, Lock, QrCode, Smartphone, Settings, Plus, Trash2, Rss, Hash, Globe, Share2, BookOpen, Clock } from 'lucide-react';
+import { Activity, Shield, Cpu, Zap, Search, Bell, TrendingUp, MessageCircle, X, Phone, Key, Lock, QrCode, Smartphone, Settings, Plus, Trash2, Rss, Hash, Globe, Share2, BookOpen, Clock, ArrowLeft, ChevronRight } from 'lucide-react';
 import ForceGraph2D from 'react-force-graph-2d';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -9,6 +9,14 @@ function cn(...inputs: ClassValue[]) {
 }
 
 const API_BASE = 'https://api.moecapital.com';
+
+interface ContentItem {
+  id: string;
+  source_name: string;
+  raw_text: string;
+  created_at: number;
+  is_signal: number;
+}
 
 interface Signal {
   id: string;
