@@ -48,11 +48,33 @@ export class TelegramManager {
     async connect(): Promise<string | undefined> {
         await this.init();
         if (!this.client) return;
-        if (!this.client.connected) {
-            await this.client.connect();
+
+        try {
+            if (!this.client.connected) {
+                await this.client.connect();
+            }
+
+            // Periodically Gram.js session needs manual saving to catch up with changes
+            const session = this.client.session.save() as unknown as string;
+            if (session) {
+                await this.triggerSessionUpdate(session);
+            }
+            return session;
+        } catch (e: any) {
+            console.error("[TelegramManager] Connection error:", e);
+            throw e;
         }
+    }
+
+    /**
+     * Manual session save trigger.
+     */
+    async saveSession(): Promise<string | null> {
+        if (!this.client || !this.client.connected) return null;
         const session = this.client.session.save() as unknown as string;
-        await this.triggerSessionUpdate(session);
+        if (session) {
+            await this.triggerSessionUpdate(session);
+        }
         return session;
     }
 

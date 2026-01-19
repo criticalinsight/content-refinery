@@ -300,6 +300,16 @@ export class ContentDO extends DurableObject<Env> {
      * Handles Telegram authentication and status endpoints.
      */
     private async handleTelegramAuth(request: Request, url: URL): Promise<Response> {
+        if (url.pathname === '/telegram/auth/logout' && request.method === 'POST') {
+            await this.ctx.storage.delete('tg_session');
+            if (this.telegram) {
+                // Ensure properly disconnected if possible
+                try { await this.telegram.getClient()?.disconnect(); } catch (e) { }
+                this.telegram = null;
+            }
+            return Response.json({ success: true, message: 'Telegram session cleared. Re-auth via QR required.' });
+        }
+
         if (url.pathname === '/telegram/auth/status' && request.method === 'GET') {
             if (!this.env.TELEGRAM_API_ID || !this.env.TELEGRAM_API_HASH) {
                 return this.sendError('TELEGRAM_API_ID and TELEGRAM_API_HASH must be set as secrets.', 500, { status: 'unconfigured' });
