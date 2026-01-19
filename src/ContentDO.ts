@@ -750,6 +750,21 @@ export class ContentDO extends DurableObject<Env> {
     }
 
     /**
+     * Phase 16: Telegram Management API
+     */
+    private async handleTelegramRoutes(request: Request, url: URL): Promise<Response> {
+        if (url.pathname === '/telegram/chats') {
+            const chats = this.ctx.storage.sql.exec(`
+                SELECT id, name, type, last_ingested_at, success_count 
+                FROM channels 
+                ORDER BY last_ingested_at DESC
+            `).toArray();
+            return Response.json({ chats });
+        }
+        return this.sendError('Telegram endpoint not found', 404);
+    }
+
+    /**
      * Handles health check and system statistics.
      * Time Complexity: O(1) (SQL COUNT on small/indexed tables).
      */
