@@ -191,7 +191,9 @@ export class ContentDO extends DurableObject<Env> {
             { table: 'content_items', col: 'content_hash', type: 'TEXT' },
             { table: 'content_items', col: 'tags', type: 'JSON' },
             { table: 'graph_nodes', col: 'sentiment_score', type: 'REAL DEFAULT 0' },
-            { table: 'graph_nodes', col: 'velocity', type: 'REAL DEFAULT 0' }
+            { table: 'graph_nodes', col: 'velocity', type: 'REAL DEFAULT 0' },
+            { table: 'channels', col: 'status', type: "TEXT DEFAULT 'active'" },
+            { table: 'channels', col: 'consecutive_irrelevant', type: 'INTEGER DEFAULT 0' }
         ];
 
         for (const { table, col, type } of columns) {
@@ -1039,7 +1041,7 @@ export class ContentDO extends DurableObject<Env> {
     }
 
     private async pollRSSFeeds() {
-        const feeds = this.ctx.storage.sql.exec("SELECT * FROM channels WHERE type = 'rss'").toArray() as any[];
+        const feeds = this.ctx.storage.sql.exec("SELECT * FROM channels WHERE type = 'rss' AND status != 'ignored'").toArray() as any[];
         for (const feed of feeds) {
             // Rate limit: Poll every 15 mins per feed
             if (feed.last_ingested_at && Date.now() - feed.last_ingested_at < 15 * 60 * 1000) continue;
@@ -1099,6 +1101,17 @@ Role: You are a Senior Equity Analyst and Portfolio Manager with a specialty in 
 
 Task:
 Please analyze the following investment thesis/text. Your goal is to determine the veracity of the claims and the soundness of the reasoning, then distill it into a high-conviction pitch.
+
+**SCOPE FILTER:**
+You must ONLY output a signal if the content falls strictly into one of these categories:
+1. Global Macro (Central Banks, Geopolitics affecting markets)
+2. Corporate News (Earnings, M&A, Leadership)
+3. Stock Pitches (Long/Short, Valuation)
+4. Crypto Pitches (Tokens, DeFi, Protocols)
+5. Crypto Macro (Regulation, Adoption, Cycles)
+6. Prediction Markets (Polymarket, Betting odds on finance/politics)
+
+**Strictly IGNORE** personal blog updates, self-promotion, dev updates without market impact, and generic noise. If it doesn't fit the scope, return an empty analysis/low score.
 
 Process:
 1. Fact Check (Search & Verify):
