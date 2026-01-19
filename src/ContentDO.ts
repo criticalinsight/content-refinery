@@ -113,6 +113,15 @@ export class ContentDO extends DurableObject<Env> {
                 last_seen INTEGER,
                 PRIMARY KEY (source, target, relation)
             );
+
+            CREATE TABLE IF NOT EXISTS narratives (
+                id TEXT PRIMARY KEY,
+                title TEXT,
+                summary TEXT,
+                sentiment TEXT,
+                signals TEXT, -- JSON array of signal IDs
+                created_at INTEGER
+            );
         `);
 
         try { this.ctx.storage.sql.exec(`ALTER TABLE graph_nodes ADD COLUMN sentiment_score REAL DEFAULT 0`); } catch (e) { }
@@ -209,6 +218,10 @@ export class ContentDO extends DurableObject<Env> {
 
         if (url.pathname === '/knowledge/alpha') {
             return this.handleAlpha(request);
+        }
+
+        if (url.pathname === '/knowledge/narratives') {
+            return this.handleNarratives(request);
         }
 
         if (url.pathname === '/ws') {
@@ -559,9 +572,27 @@ export class ContentDO extends DurableObject<Env> {
             WHERE type = 'entity'
             ORDER BY alpha_score DESC 
             LIMIT 10
-        `).toArray();
+        `).toArray() as any[];
 
         return Response.json({ alphaNodes });
+    }
+
+    // Narratives API
+    async handleNarratives(request: Request): Promise<Response> {
+        if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+
+        const narratives = this.ctx.storage.sql.exec(`
+            SELECT * FROM narratives 
+            ORDER BY created_at DESC 
+            LIMIT 5
+        `).toArray() as any[];
+
+        return Response.json({
+            narratives: narratives.map(n => ({
+                ...n,
+                signals: JSON.parse(n.signals)
+            }))
+        });
     }
 
     // RSS Management Endpoints
