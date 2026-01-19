@@ -1167,8 +1167,10 @@ You must return a JSON array of objects. Each object must have the following key
                 this.ctx.storage.sql.exec("UPDATE content_items SET processed_json = ? WHERE id = ?", debugInfo, item.id);
             }
 
+            let signalCount = 0;
             for (const intel of analysis) {
                 if (intel.relevance_score > 40) {
+                    signalCount++;
                     await this.notifySignal(intel, sourceId, items[0].source_name);
 
                     // Phase 16: Signal Mirroring (Score > 80)
@@ -1211,12 +1213,31 @@ You must return a JSON array of objects. Each object must have the following key
 
                                 // Insert/Update Edge
                                 this.ctx.storage.sql.exec(`
-                                INSERT INTO graph_edges (source, target, relation, weight, last_seen) VALUES (?, ?, ?, 1.0, ?)
-                                ON CONFLICT(source, target, relation) DO UPDATE SET weight = weight + 0.5, last_seen = excluded.last_seen
-                            `, subject, object, predicate, Date.now());
+                                INSERT INTO graph_edges (source, target, relation, weight, last_seen) 
+                                VALUES (?, ?, ?, 1.0, ?)
+                                ON CONFLICT(source, target, relation) DO UPDATE SET 
+                                weight = weight + 0.1, 
+                                last_seen = ?
+                            `, subject, object, predicate, Date.now(), Date.now());
                             }
                         }
                     }
+                }
+            }
+
+            // Channel Health/Pruning Logic
+            if (signalCount > 0) {
+                // Channel is alive and providing value
+                this.ctx.storage.sql.exec('UPDATE channels SET consecutive_irrelevant = 0 WHERE id = ?', sourceId);
+            } else {
+                // Channel is noisy
+                this.ctx.storage.sql.exec('UPDATE channels SET consecutive_irrelevant = consecutive_irrelevant + ? WHERE id = ?', items.length, sourceId);
+
+                // Check if we should prune
+                const chan = this.ctx.storage.sql.exec('SELECT consecutive_irrelevant FROM channels WHERE id = ?', sourceId).one() as any;
+                if (chan && chan.consecutive_irrelevant >= 100) {
+                    console.log(`[ContentRefinery] Pruning channel ${sourceId} due to ${chan.consecutive_irrelevant} irrelevant messages.`);
+                    this.ctx.storage.sql.exec("UPDATE channels SET status = 'ignored' WHERE id = ?", sourceId);
                 }
             }
         } catch (e) {
