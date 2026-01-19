@@ -428,6 +428,8 @@ export class ContentDO extends DurableObject<Env> {
             const to = url.searchParams.get('to');
             const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
 
+            const offset = parseInt(url.searchParams.get('offset') || '0');
+
             // Basic caching for unfiltered requests
             if (!query && !source && !sentiment && !urgent && !from && !to && offset === 0) {
                 const cached = this.getCache('signal');
@@ -437,9 +439,6 @@ export class ContentDO extends DurableObject<Env> {
             let sql = `SELECT id, source_id, source_name, raw_text, processed_json, sentiment, created_at 
                        FROM content_items WHERE is_signal = 1`;
             const params: any[] = [];
-
-            // ... (rest of search logic remains same but I'll skip to where it returns)
-            // Wait, I need to replace the whole block to be safe or target the return
 
             if (query) {
                 sql += ` AND raw_text LIKE ?`;
@@ -474,7 +473,7 @@ export class ContentDO extends DurableObject<Env> {
             let countSql = `SELECT COUNT(*) as total FROM content_items WHERE is_signal = 1`;
             const total = (this.ctx.storage.sql.exec(countSql).one() as any)?.total || 0;
 
-            return Response.json({
+            const responseData = {
                 signals: signals.map((s: any) => ({
                     ...s,
                     processed_json: s.processed_json ? JSON.parse(s.processed_json) : null
@@ -482,7 +481,14 @@ export class ContentDO extends DurableObject<Env> {
                 total,
                 limit,
                 offset
-            });
+            };
+
+            // Cache unfiltered first page
+            if (!query && !source && !sentiment && !urgent && !from && !to && offset === 0) {
+                this.setCache('signal', responseData);
+            }
+
+            return Response.json(responseData);
         }
 
         // List signals (simple paginated list)
@@ -767,6 +773,7 @@ export class ContentDO extends DurableObject<Env> {
             id, body.chatId, body.title, body.text, contentHash, Date.now()
         );
 
+        this.invalidateCache();
         await this.ctx.storage.setAlarm(Date.now() + 5000);
         return id;
     }
@@ -830,7 +837,8 @@ export class ContentDO extends DurableObject<Env> {
     }
 
     private async processBatch() {
-        const items = this.ctx.storage.sql.exec('SELECT * FROM content_items WHERE processed_json IS NULL AND retry_count < 5 LIMIT 10').toArray() as any[];
+        // Optimization: Increase batch size to 20
+        const items = this.ctx.storage.sql.exec('SELECT * FROM content_items WHERE processed_json IS NULL AND retry_count < 5 LIMIT 20').toArray() as any[];
         if (items.length === 0) return;
 
         const bySource: Record<string, any[]> = {};
@@ -840,23 +848,20 @@ export class ContentDO extends DurableObject<Env> {
         }
 
         for (const [sourceId, sourceItems] of Object.entries(bySource)) {
-            await this.analyzeSourceBatch(sourceId, sourceItems);
+            try {
+                await this.analyzeSourceBatch(sourceId, sourceItems);
+            } catch (e) {
+                await this.logger.log('BatchProcessor', e, { sourceId, itemCount: sourceItems.length });
+            }
         }
     }
 
     private async analyzeSourceBatch(sourceId: string, items: any[]) {
         const texts = items.map(i => `[ID: ${i.id}] ${i.raw_text}`).join('\n---\n');
-        const systemPrompt = `You are an Institutional-Grade Financial Signal Extractor. Detect ANY market-relevant information. 
-    Output valid JSON array of objects. Each object must have: 
-    - summary: Concise summary 
-    - relevance_score: 0-100
-    - is_urgent: boolean
-    - sentiment: "positive" | "negative" | "neutral"
-    - tickers: array of strings (e.g. ["BTC", "AAPL"])
-    - tags: array of strings (e.g. ["macro", "crypto", "earnings", "merger"])
-    - triples: array of objects { subject: string, predicate: string, object: string } (e.g. { "subject": "Bitcoin", "predicate": "reached", "object": "all-time high" })
-    - source_ids: array of IDs from input that contributed to this signal
-    Return [] only if NO financial data.`;
+        // prompt optimization
+        const systemPrompt = `Analyze market signals. Output JSON array. 
+    Keys: summary, relevance_score (0-100), is_urgent (bool), sentiment, tickers (array), tags (array), signals (source_ids array), triples ({s,p,o} array). 
+    Only return meaningful financial data.`;
 
         try {
             const response = await fetch(
@@ -1147,9 +1152,10 @@ export class ContentDO extends DurableObject<Env> {
                         'INSERT INTO narratives (id, title, summary, sentiment, signals, created_at) VALUES (?, ?, ?, ?, ?, ?)',
                         id, narrative.title, narrative.summary, narrative.sentiment, JSON.stringify(cluster.map(c => c.id)), Date.now()
                     );
+                    this.invalidateCache();
                 }
             } catch (e) {
-                console.error('[ContentRefinery] Narrative synthesis failed:', e);
+                await this.logger.log('NarrativeEngine', e, { clusterSize: cluster.length });
             }
         }
     }
