@@ -669,8 +669,8 @@ const NarrativeCard: React.FC<{ narrative: Narrative }> = ({ narrative }) => {
 };
 
 const BottomNav: React.FC<{
-  viewMode: 'feed' | 'graph' | 'narratives';
-  setViewMode: (v: 'feed' | 'graph' | 'narratives') => void;
+  viewMode: 'feed' | 'graph' | 'narratives' | 'analytics';
+  setViewMode: (v: 'feed' | 'graph' | 'narratives' | 'analytics') => void;
   onSettings: () => void;
 }> = ({ viewMode, setViewMode, onSettings }) => {
   return (
@@ -693,8 +693,14 @@ const BottomNav: React.FC<{
         onClick={() => setViewMode('graph')}
         className={cn("flex flex-col items-center gap-1 p-2 transition-all", viewMode === 'graph' ? "text-accent" : "text-white/40")}
       >
-        <Share2 className="w-5 h-5" />
         <span className="text-[10px] font-bold uppercase tracking-tighter">Graph</span>
+      </button>
+      <button
+        onClick={() => setViewMode('analytics')}
+        className={cn("flex flex-col items-center gap-1 p-2 transition-all", viewMode === 'analytics' ? "text-accent" : "text-white/40")}
+      >
+        <TrendingUp className="w-5 h-5" />
+        <span className="text-[10px] font-bold uppercase tracking-tighter">Stats</span>
       </button>
       <button
         onClick={onSettings}
