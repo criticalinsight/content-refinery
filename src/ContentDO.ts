@@ -1947,28 +1947,31 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
                     // Fetch specific message by ID if available, otherwise search recent messages
                     let match: any = null;
                     if (messageId) {
+                        this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                            crypto.randomUUID(), "DEBUG_DIGEST", `Fetching messageId ${messageId} from chatId ${chatId}...`, Date.now());
                         const messages = await (tg as any).getMessages(chatId, { ids: [messageId] });
                         match = messages?.[0];
                     } else {
+                        this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                            crypto.randomUUID(), "DEBUG_DIGEST", `Searching recent messages in chatId ${chatId}...`, Date.now());
                         const messages = await (tg as any).getMessages(chatId, { limit: 20 });
                         match = messages.find((m: any) => m.media && m.media.document && m.media.document.mimeType === 'application/pdf');
                     }
 
                     if (match && match.media?.document?.mimeType === 'application/pdf') {
-                        // Log progress
                         this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                            crypto.randomUUID(), "DEBUG_DIGEST", `Downloading PDF for ${item.source_name} (msgId: ${messageId || 'search'})...`, Date.now());
+                            crypto.randomUUID(), "DEBUG_DIGEST", `✅ PDF found: ${match.media.document.attributes?.find((a: any) => a.fileName)?.fileName || 'unknown.pdf'}`, Date.now());
 
                         console.log(`[ContentRefinery] Processing PDF from ${item.source_name}...`);
                         const buffer = await tg.downloadMedia(match);
                         if (!buffer) {
                             this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                                crypto.randomUUID(), "DEBUG_DIGEST", `❌ Failed to download PDF for ${item.source_name}`, Date.now());
+                                crypto.randomUUID(), "DEBUG_DIGEST", `❌ Failed to download PDF buffer for ${item.source_name}`, Date.now());
                             continue;
                         }
 
                         this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                            crypto.randomUUID(), "DEBUG_DIGEST", `Sending PDF (${Math.round(buffer.byteLength / 1024)} KB) to Gemini 2.0 Flash...`, Date.now());
+                            crypto.randomUUID(), "DEBUG_DIGEST", `🚀 Sending PDF (${Math.round(buffer.byteLength / 1024)} KB) to Gemini 2.0 Flash...`, Date.now());
 
                         let binary = '';
                         const bytes = new Uint8Array(buffer);
@@ -1996,11 +1999,21 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
                             }
                         );
 
+                        if (!response.ok) {
+                            const err = await response.text();
+                            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                                crypto.randomUUID(), "DEBUG_DIGEST", `❌ Gemini API Error: ${response.status} - ${err.substring(0, 200)}`, Date.now());
+                            continue;
+                        }
+
                         const result = await response.json() as any;
                         const outputText = result.candidates?.[0]?.content?.parts?.[0]?.text;
 
                         if (outputText) {
                             const signals = JSON.parse(outputText);
+                            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                                crypto.randomUUID(), "DEBUG_DIGEST", `✨ Extracted ${signals.length} signals from PDF.`, Date.now());
+
                             console.log(`[ContentRefinery] Extracted ${signals.length} signals from PDF.`);
 
                             for (const signal of signals) {
@@ -2013,16 +2026,26 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
                             }
 
                             this.ctx.storage.sql.exec("UPDATE content_items SET processed_json = ? WHERE id = ?", JSON.stringify({ pdf_processed: true, signal_count: signals.length }), item.id);
+                        } else {
+                            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                                crypto.randomUUID(), "DEBUG_DIGEST", `⚠️ No output from Gemini for ${item.source_name}`, Date.now());
                         }
+                    } else {
+                        this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                            crypto.randomUUID(), "DEBUG_DIGEST", `⚠️ Message found but no PDF media in it for ${item.source_name}`, Date.now());
                     }
-                } catch (e) {
-                    console.error(`[ContentRefinery] PDF Error for ${item.id}:`, e);
+                } catch (e: any) {
+                    this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                        crypto.randomUUID(), "DEBUG_DIGEST", `❌ Loop Exception: ${e.message}`, Date.now());
                 }
+            }
+            console.error(`[ContentRefinery] PDF Error for ${item.id}:`, e);
+        }
             }
             return { success: true, message: 'PDF Extraction Complete' };
         } catch (e) {
-            console.error('Digest Error:', e);
-            throw e;
-        }
+    console.error('Digest Error:', e);
+    throw e;
+}
     }
 }
