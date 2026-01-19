@@ -174,6 +174,17 @@ export class ContentDO extends DurableObject<Env> {
         for (const { table, col, type } of columns) {
             try { this.ctx.storage.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`); } catch (e) { }
         }
+
+        // Phase 22: Push Subscriptions
+        this.ctx.storage.sql.exec(`
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                id TEXT PRIMARY KEY,
+                endpoint TEXT,
+                p256dh TEXT,
+                auth TEXT,
+                created_at INTEGER
+            );
+        `);
     }
 
     /**
@@ -713,6 +724,10 @@ export class ContentDO extends DurableObject<Env> {
      * Phase 22: Push Notifications API
      */
     private async handleNotifications(request: Request, url: URL): Promise<Response> {
+        if (url.pathname === '/notifications/vapid-public-key') {
+            return Response.json({ key: this.env.VAPID_PUBLIC_KEY });
+        }
+
         if (request.method === 'POST' && url.pathname === '/notifications/subscribe') {
             try {
                 const sub = await request.json() as any;
