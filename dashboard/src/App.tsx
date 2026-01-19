@@ -1394,3 +1394,5 @@ const AnalyticsView: React.FC = () => {
   );
 };
 
+
+export default App;
