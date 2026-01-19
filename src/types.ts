@@ -7,6 +7,8 @@ export interface Env {
     TELEGRAM_API_ID: string;
     TELEGRAM_API_HASH: string;
     BOARD_DO_URL?: string; // Phase 24: New URL for the BoardDO service if separate
+    VAPID_PUBLIC_KEY: string;
+    VAPID_PRIVATE_KEY: string;
 }
 
 export interface ContentItem {
