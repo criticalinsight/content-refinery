@@ -708,12 +708,13 @@ const BottomNav: React.FC<{
 
 const App: React.FC = () => {
   const [signals, setSignals] = useState<Signal[]>([]);
+  const [alphaNodes, setAlphaNodes] = useState<AlphaNode[]>([]);
+  const [narratives, setNarratives] = useState<Narrative[]>([]);
   const [status, setStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
-  const [telegramStatus, setTelegramStatus] = useState<TelegramStatus>('loading');
+  const [telegramStatus, setTelegramStatus] = useState<TelegramStatus>('unconfigured');
   const [showTelegramModal, setShowTelegramModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [viewMode, setViewMode] = useState<'feed' | 'graph'>('feed');
-  const [alphaNodes, setAlphaNodes] = useState<AlphaNode[]>([]);
+  const [viewMode, setViewMode] = useState<'feed' | 'graph' | 'narratives'>('feed');
 
   const fetchAlpha = async () => {
     try {
@@ -723,9 +724,23 @@ const App: React.FC = () => {
     } catch (e) { console.error(e); }
   };
 
+  const fetchNarratives = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/knowledge/narratives`);
+      const data = await res.json();
+      if (data.narratives) setNarratives(data.narratives);
+    } catch (e) {
+      console.error('Failed to fetch narratives:', e);
+    }
+  };
+
   useEffect(() => {
     fetchAlpha();
-    const interval = setInterval(fetchAlpha, 30000); // Poll every 30s
+    fetchNarratives();
+    const interval = setInterval(() => {
+      fetchAlpha();
+      fetchNarratives();
+    }, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -857,25 +872,27 @@ const App: React.FC = () => {
 
         <div className="flex items-center gap-6">
           <nav className="hidden md:flex items-center gap-4 text-sm font-medium text-white/60">
-            <button
-              onClick={() => { setHistoryMode(false); setSearchQuery(''); }}
-              className={cn("hover:text-accent transition-colors", !historyMode ? "text-white font-bold" : "")}
-            >
-              Real-time
-            </button>
-            <button
-              onClick={() => setHistoryMode(true)}
-              className={cn("hover:text-accent transition-colors", historyMode ? "text-white font-bold" : "")}
-            >
-              Historical
-            </button>
-            <a
-              href="#"
-              onClick={(e) => { e.preventDefault(); setViewMode('graph'); }}
-              className={cn("hover:text-accent transition-colors", viewMode === 'graph' ? "text-white font-bold" : "")}
-            >
-              Relational
-            </a>
+            {/* View Switcher Desktop */}
+            <div className="hidden md:flex glass p-1 rounded-xl items-center gap-1 border border-white/5">
+              <button
+                onClick={() => setViewMode('feed')}
+                className={cn("px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all",
+                  viewMode === 'feed' ? "bg-accent text-black shadow-lg" : "text-white/40 hover:text-white/60")}>
+                Signal Feed
+              </button>
+              <button
+                onClick={() => setViewMode('narratives')}
+                className={cn("px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all",
+                  viewMode === 'narratives' ? "bg-accent text-black shadow-lg" : "text-white/40 hover:text-white/60")}>
+                Narratives
+              </button>
+              <button
+                onClick={() => setViewMode('graph')}
+                className={cn("px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all",
+                  viewMode === 'graph' ? "bg-accent text-black shadow-lg" : "text-white/40 hover:text-white/60")}>
+                Knowledge Graph
+              </button>
+            </div>
             <button onClick={() => setShowSettings(true)} className="hover:text-accent transition-colors">Settings</button>
           </nav>
 
@@ -906,15 +923,13 @@ const App: React.FC = () => {
 
       {/* Main Grid */}
       <main className={cn(
-        "flex-1",
+        "flex-1 overflow-hidden",
         viewMode === 'feed' ? "grid grid-cols-1 lg:grid-cols-3 gap-6" : "flex flex-col"
       )}>
-        {viewMode === 'graph' ? (
-          <RelationalView />
-        ) : (
+        {viewMode === 'feed' ? (
           <>
-            {/* Signal Feed */}
-            <section className="col-span-2 flex flex-col gap-4">
+            {/* Feed Section - Col 1 & 2 */}
+            <div className="lg:col-span-2 flex flex-col gap-6 overflow-hidden">
               <div className="flex justify-between items-center">
                 <h2 className="flex items-center gap-2 font-semibold">
                   <Zap className="text-accent w-4 h-4" />
@@ -1004,10 +1019,10 @@ const App: React.FC = () => {
                   )}
                 </div>
               </div>
-            </section>
+            </div>
 
-            {/* Sidebar Intelligence */}
-            <aside className="flex flex-col gap-6">
+            {/* Sidebar - Col 3 */}
+            <div className="flex flex-col gap-6 overflow-y-auto pr-1">
               {/* Telegram Status Card */}
               <div className={cn(
                 "glass p-5 rounded-2xl",
