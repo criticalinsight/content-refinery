@@ -761,6 +761,20 @@ export class ContentDO extends DurableObject<Env> {
             `).toArray();
             return Response.json({ chats });
         }
+
+        if (url.pathname === '/telegram/messages') {
+            const chatId = url.searchParams.get('chatId');
+            if (!chatId) return this.sendError('Missing chatId parameter');
+
+            const messages = this.ctx.storage.sql.exec(`
+                SELECT * FROM content_items 
+                WHERE source_id = ? 
+                ORDER BY created_at DESC 
+                LIMIT 50
+            `, chatId).toArray();
+            return Response.json({ messages });
+        }
+
         return this.sendError('Telegram endpoint not found', 404);
     }
 
