@@ -739,137 +739,115 @@ export class ContentDO extends DurableObject<Env> {
         return id;
     }
 
-    async alarm() {
-        try {
-            await this.pollRSSFeeds();
-        } catch (e) {
-            console.error("[ContentRefinery] RSS Polling failed:", e);
-        }
-
-        try {
-            await this.processBatch();
-        } catch (e) {
-            console.error("[ContentRefinery] Batch processing failed:", e);
-        }
-
-        try {
-            // Narrative Detection: Run every 60 minutes
-            const lastRun = await this.ctx.storage.get<number>('last_narrative_run') || 0;
-            if (Date.now() - lastRun > 60 * 60 * 1000) {
-                await this.detectNarratives();
-                await this.ctx.storage.put('last_narrative_run', Date.now());
-            }
-        } catch (e) {
-            console.error("[ContentRefinery] Narrative detection failed:", e);
-        }
+        return id;
     }
 
     private async pollRSSFeeds() {
-        const feeds = this.ctx.storage.sql.exec("SELECT * FROM channels WHERE type = 'rss'").toArray() as any[];
-        for (const feed of feeds) {
-            // Rate limit: Poll every 15 mins per feed
-            if (feed.last_ingested_at && Date.now() - feed.last_ingested_at < 15 * 60 * 1000) continue;
+    const feeds = this.ctx.storage.sql.exec("SELECT * FROM channels WHERE type = 'rss'").toArray() as any[];
+    for (const feed of feeds) {
+        // Rate limit: Poll every 15 mins per feed
+        if (feed.last_ingested_at && Date.now() - feed.last_ingested_at < 15 * 60 * 1000) continue;
 
-            console.log(`[ContentRefinery] Polling RSS: ${feed.name}`);
-            const data = await fetchAndParseRSS(feed.feed_url);
-            if (data && data.items) {
-                let newCount = 0;
-                for (const item of data.items) {
-                    const text = `${item.title}\n\n${item.description}\n\n${item.link}`;
-                    const contentHash = await this.generateContentHash(text);
+        console.log(`[ContentRefinery] Polling RSS: ${feed.name}`);
+        const data = await fetchAndParseRSS(feed.feed_url);
+        if (data && data.items) {
+            let newCount = 0;
+            for (const item of data.items) {
+                const text = `${item.title}\n\n${item.description}\n\n${item.link}`;
+                const contentHash = await this.generateContentHash(text);
 
-                    const existing = this.ctx.storage.sql.exec('SELECT id FROM content_items WHERE content_hash = ?', contentHash).toArray();
+                const existing = this.ctx.storage.sql.exec('SELECT id FROM content_items WHERE content_hash = ?', contentHash).toArray();
 
-                    if (existing.length === 0) {
-                        const id = crypto.randomUUID();
-                        this.ctx.storage.sql.exec(
-                            'INSERT INTO content_items (id, source_id, source_name, raw_text, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-                            id, feed.id, feed.name, text, contentHash, Date.now()
-                        );
-                        newCount++;
-                    }
+                if (existing.length === 0) {
+                    const id = crypto.randomUUID();
+                    this.ctx.storage.sql.exec(
+                        'INSERT INTO content_items (id, source_id, source_name, raw_text, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+                        id, feed.id, feed.name, text, contentHash, Date.now()
+                    );
+                    newCount++;
                 }
-
-                this.ctx.storage.sql.exec('UPDATE channels SET last_ingested_at = ?, success_count = success_count + ? WHERE id = ?', Date.now(), newCount, feed.id);
-            } else {
-                this.ctx.storage.sql.exec('UPDATE channels SET failure_count = failure_count + 1 WHERE id = ?', feed.id);
             }
+
+            this.ctx.storage.sql.exec('UPDATE channels SET last_ingested_at = ?, success_count = success_count + ? WHERE id = ?', Date.now(), newCount, feed.id);
+        } else {
+            this.ctx.storage.sql.exec('UPDATE channels SET failure_count = failure_count + 1 WHERE id = ?', feed.id);
         }
     }
+}
 
     private async processBatch() {
-        // Optimization: Increase batch size to 20
-        const items = this.ctx.storage.sql.exec('SELECT * FROM content_items WHERE processed_json IS NULL AND retry_count < 5 LIMIT 20').toArray() as any[];
-        if (items.length === 0) return;
+    // Optimization: Increase batch size to 20
+    const items = this.ctx.storage.sql.exec('SELECT * FROM content_items WHERE processed_json IS NULL AND retry_count < 5 LIMIT 20').toArray() as any[];
+    if (items.length === 0) return;
 
-        const bySource: Record<string, any[]> = {};
-        for (const item of items) {
-            if (!bySource[item.source_id]) bySource[item.source_id] = [];
-            bySource[item.source_id].push(item);
-        }
-
-        for (const [sourceId, sourceItems] of Object.entries(bySource)) {
-            try {
-                await this.analyzeSourceBatch(sourceId, sourceItems);
-            } catch (e) {
-                await this.logger.log('BatchProcessor', e, { sourceId, itemCount: sourceItems.length });
-            }
-        }
+    const bySource: Record<string, any[]> = {};
+    for (const item of items) {
+        if (!bySource[item.source_id]) bySource[item.source_id] = [];
+        bySource[item.source_id].push(item);
     }
 
+    for (const [sourceId, sourceItems] of Object.entries(bySource)) {
+        try {
+            await this.analyzeSourceBatch(sourceId, sourceItems);
+        } catch (e) {
+            await this.logger.log('BatchProcessor', e, { sourceId, itemCount: sourceItems.length });
+        }
+    }
+}
+
     private async analyzeSourceBatch(sourceId: string, items: any[]) {
-        const texts = items.map(i => `[ID: ${i.id}] ${i.raw_text}`).join('\n---\n');
-        // prompt optimization
-        const systemPrompt = `Analyze market signals. Output JSON array. 
+    const texts = items.map(i => `[ID: ${i.id}] ${i.raw_text}`).join('\n---\n');
+    // prompt optimization
+    const systemPrompt = `Analyze market signals. Output JSON array. 
     Keys: summary, relevance_score (0-100), is_urgent (bool), sentiment, tickers (array), tags (array), signals (source_ids array), triples ({s,p,o} array). 
     Only return meaningful financial data.`;
 
-        try {
-            const response = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent?key=${this.env.GEMINI_API_KEY}`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ role: 'user', parts: [{ text: texts }] }],
-                        systemInstruction: { parts: [{ text: systemPrompt }] },
-                        generationConfig: { temperature: 0.2, response_mime_type: "application/json" }
-                    })
-                }
-            );
-
-            const result = await response.json() as any;
-            const outputText = result.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-            const analysis = JSON.parse(outputText);
-
-            const debugInfo = JSON.stringify({ batch_processed: true, analysis, raw_output: outputText, timestamp: Date.now() });
-            for (const item of items) {
-                this.ctx.storage.sql.exec("UPDATE content_items SET processed_json = ? WHERE id = ?", debugInfo, item.id);
+    try {
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent?key=${this.env.GEMINI_API_KEY}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ role: 'user', parts: [{ text: texts }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                    generationConfig: { temperature: 0.2, response_mime_type: "application/json" }
+                })
             }
+        );
 
-            for (const intel of analysis) {
-                if (intel.relevance_score > 40) {
-                    await this.notifySignal(intel, sourceId, items[0].source_name);
-                    if (Array.isArray(intel.source_ids)) {
-                        for (const sid of intel.source_ids) {
-                            this.ctx.storage.sql.exec('UPDATE content_items SET is_signal = 1, tags = ? WHERE id = ?', JSON.stringify(intel.tags || []), sid);
-                        }
+        const result = await response.json() as any;
+        const outputText = result.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+        const analysis = JSON.parse(outputText);
+
+        const debugInfo = JSON.stringify({ batch_processed: true, analysis, raw_output: outputText, timestamp: Date.now() });
+        for (const item of items) {
+            this.ctx.storage.sql.exec("UPDATE content_items SET processed_json = ? WHERE id = ?", debugInfo, item.id);
+        }
+
+        for (const intel of analysis) {
+            if (intel.relevance_score > 40) {
+                await this.notifySignal(intel, sourceId, items[0].source_name);
+                if (Array.isArray(intel.source_ids)) {
+                    for (const sid of intel.source_ids) {
+                        this.ctx.storage.sql.exec('UPDATE content_items SET is_signal = 1, tags = ? WHERE id = ?', JSON.stringify(intel.tags || []), sid);
                     }
-                    // Process Triples
-                    if (Array.isArray(intel.triples)) {
-                        for (const triple of intel.triples) {
-                            if (triple.subject && triple.predicate && triple.object) {
-                                // Insert Nodes
-                                this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO graph_nodes (id, label, type, last_seen, sentiment_score, velocity) VALUES (?, ?, 'entity', ?, 0, 0)`, triple.subject, triple.subject, Date.now());
-                                this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO graph_nodes (id, label, type, last_seen, sentiment_score, velocity) VALUES (?, ?, 'entity', ?, 0, 0)`, triple.object, triple.object, Date.now());
+                }
+                // Process Triples
+                if (Array.isArray(intel.triples)) {
+                    for (const triple of intel.triples) {
+                        if (triple.subject && triple.predicate && triple.object) {
+                            // Insert Nodes
+                            this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO graph_nodes (id, label, type, last_seen, sentiment_score, velocity) VALUES (?, ?, 'entity', ?, 0, 0)`, triple.subject, triple.subject, Date.now());
+                            this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO graph_nodes (id, label, type, last_seen, sentiment_score, velocity) VALUES (?, ?, 'entity', ?, 0, 0)`, triple.object, triple.object, Date.now());
 
-                                // Map sentiment to score
-                                let sentScore = 0;
-                                if (intel.sentiment === 'positive') sentScore = 1;
-                                if (intel.sentiment === 'negative') sentScore = -1;
+                            // Map sentiment to score
+                            let sentScore = 0;
+                            if (intel.sentiment === 'positive') sentScore = 1;
+                            if (intel.sentiment === 'negative') sentScore = -1;
 
-                                // Update Node Stats (Importance, Sentiment, Velocity)
-                                this.ctx.storage.sql.exec(`
+                            // Update Node Stats (Importance, Sentiment, Velocity)
+                            this.ctx.storage.sql.exec(`
                                     UPDATE graph_nodes 
                                     SET importance = importance + 0.1, 
                                         velocity = velocity + 1,
@@ -878,299 +856,332 @@ export class ContentDO extends DurableObject<Env> {
                                     WHERE id IN (?, ?)
                                 `, sentScore, Date.now(), triple.subject, triple.object);
 
-                                // Insert/Update Edge
-                                this.ctx.storage.sql.exec(`
+                            // Insert/Update Edge
+                            this.ctx.storage.sql.exec(`
                                     INSERT INTO graph_edges (source, target, relation, weight, last_seen) VALUES (?, ?, ?, 1.0, ?)
                                     ON CONFLICT(source, target, relation) DO UPDATE SET weight = weight + 0.5, last_seen = excluded.last_seen
                                 `, triple.subject, triple.object, triple.predicate, Date.now());
-                            }
                         }
                     }
                 }
             }
-        } catch (e) {
-            console.error('[ContentRefinery] Analysis failed:', e);
-            const errorMsg = e instanceof Error ? e.message : String(e);
-            for (const item of items) {
-                this.ctx.storage.sql.exec(
-                    "UPDATE content_items SET retry_count = retry_count + 1, last_error = ? WHERE id = ?",
-                    errorMsg, item.id
-                );
-            }
         }
-
-        const pending = this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items WHERE processed_json IS NULL').toArray()[0] as any;
-        if (pending.cnt > 0) await this.ctx.storage.setAlarm(Date.now() + 2000);
+    } catch (e) {
+        console.error('[ContentRefinery] Analysis failed:', e);
+        const errorMsg = e instanceof Error ? e.message : String(e);
+        for (const item of items) {
+            this.ctx.storage.sql.exec(
+                "UPDATE content_items SET retry_count = retry_count + 1, last_error = ? WHERE id = ?",
+                errorMsg, item.id
+            );
+        }
     }
+
+    const pending = this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items WHERE processed_json IS NULL').toArray()[0] as any;
+    if (pending.cnt > 0) await this.ctx.storage.setAlarm(Date.now() + 2000);
+}
 
     private async notifySignal(intel: any, sourceId: string, sourceName: string) {
-        if (!this.env.BOARD_DO_URL) {
-            console.warn('[ContentRefinery] BOARD_DO_URL not configured. Signal not forwarded.');
-            return;
-        }
-
-        const tickers = Array.isArray(intel.tickers) ? intel.tickers : [];
-        const fingerprint = `${(intel.summary || "").toLowerCase().trim()}:${[...tickers].sort().join(',')}`;
-
-        // 1. Broadcast to WebSocket clients
-        this.broadcastSignal(intel, sourceId, sourceName);
-
-        // 2. Generate Embeddings & Update Vectorize
-        this.ctx.blockConcurrencyWhile(async () => {
-            await this.upsertToVectorize(intel);
-        });
-
-        try {
-            // 3. Encrypt if necessary (Private Feed logic)
-            let forwardedIntel = intel;
-            if (intel.metadata?.privacy === 'encrypted') {
-                forwardedIntel = await this.encryptSignal(intel);
-            }
-
-            // Forward signal to main app via REST
-            await this.fetchWithRetry(`${this.env.BOARD_DO_URL}/api/refinery/signal`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    intel: forwardedIntel,
-                    sourceId,
-                    sourceName,
-                    fingerprint,
-                    timestamp: Date.now()
-                })
-            });
-        } catch (e) {
-            console.error('[ContentRefinery] Signal forwarding failed:', e);
-        }
+    if (!this.env.BOARD_DO_URL) {
+        console.warn('[ContentRefinery] BOARD_DO_URL not configured. Signal not forwarded.');
+        return;
     }
+
+    const tickers = Array.isArray(intel.tickers) ? intel.tickers : [];
+    const fingerprint = `${(intel.summary || "").toLowerCase().trim()}:${[...tickers].sort().join(',')}`;
+
+    // 1. Broadcast to WebSocket clients
+    this.broadcastSignal(intel, sourceId, sourceName);
+
+    // 2. Generate Embeddings & Update Vectorize
+    this.ctx.blockConcurrencyWhile(async () => {
+        await this.upsertToVectorize(intel);
+    });
+
+    try {
+        // 3. Encrypt if necessary (Private Feed logic)
+        let forwardedIntel = intel;
+        if (intel.metadata?.privacy === 'encrypted') {
+            forwardedIntel = await this.encryptSignal(intel);
+        }
+
+        // Forward signal to main app via REST
+        await this.fetchWithRetry(`${this.env.BOARD_DO_URL}/api/refinery/signal`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                intel: forwardedIntel,
+                sourceId,
+                sourceName,
+                fingerprint,
+                timestamp: Date.now()
+            })
+        });
+    } catch (e) {
+        console.error('[ContentRefinery] Signal forwarding failed:', e);
+    }
+}
 
     private broadcastSignal(intel: any, sourceId: string, sourceName: string) {
-        const payload = JSON.stringify({ type: 'signal', data: { intel, sourceId, sourceName, timestamp: Date.now() } });
-        this.ctx.getWebSockets().forEach(ws => {
-            try { ws.send(payload); } catch (e) { }
-        });
-    }
+    const payload = JSON.stringify({ type: 'signal', data: { intel, sourceId, sourceName, timestamp: Date.now() } });
+    this.ctx.getWebSockets().forEach(ws => {
+        try { ws.send(payload); } catch (e) { }
+    });
+}
 
     private async upsertToVectorize(intel: any) {
-        if (!this.env.VECTOR_INDEX) return;
+    if (!this.env.VECTOR_INDEX) return;
 
-        try {
-            const textToEmbed = `${intel.summary} ${intel.detail}`;
-            const embedding = await this.getEmbeddings(textToEmbed);
+    try {
+        const textToEmbed = `${intel.summary} ${intel.detail}`;
+        const embedding = await this.getEmbeddings(textToEmbed);
 
-            await this.env.VECTOR_INDEX.upsert([{
-                id: crypto.randomUUID(),
-                values: embedding,
-                metadata: {
-                    summary: intel.summary,
-                    tickers: JSON.stringify(intel.tickers || []),
-                    sentiment: intel.sentiment || 'neutral'
-                }
-            }]);
-            console.log('[ContentRefinery] Successfully upserted to Vectorize');
-        } catch (e) {
-            console.error('[ContentRefinery] Vectorize upsert failed:', e);
-        }
-    }
-
-    private async getEmbeddings(text: string): Promise<number[]> {
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${this.env.GEMINI_API_KEY}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    content: { parts: [{ text }] }
-                })
+        await this.env.VECTOR_INDEX.upsert([{
+            id: crypto.randomUUID(),
+            values: embedding,
+            metadata: {
+                summary: intel.summary,
+                tickers: JSON.stringify(intel.tickers || []),
+                sentiment: intel.sentiment || 'neutral'
             }
-        );
-        const result = await response.json() as any;
-        return result.embedding.values;
+        }]);
+        console.log('[ContentRefinery] Successfully upserted to Vectorize');
+    } catch (e) {
+        console.error('[ContentRefinery] Vectorize upsert failed:', e);
     }
+}
 
-    private async encryptSignal(intel: any): Promise<string> {
-        // Simple mock encryption (AES-256-GCM logic would go here)
-        // For brevity in CF Worker, we'll use a placeholder or base64
-        const secret = this.env.GEMINI_API_KEY; // Using API key as derivation source for demo
-        const encoded = new TextEncoder().encode(JSON.stringify(intel));
-        return btoa(String.fromCharCode(...new Uint8Array(encoded)));
-    }
+    private async getEmbeddings(text: string): Promise < number[] > {
+    const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${this.env.GEMINI_API_KEY}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                content: { parts: [{ text }] }
+            })
+        }
+    );
+    const result = await response.json() as any;
+    return result.embedding.values;
+}
+
+    private async encryptSignal(intel: any): Promise < string > {
+    // Simple mock encryption (AES-256-GCM logic would go here)
+    // For brevity in CF Worker, we'll use a placeholder or base64
+    const secret = this.env.GEMINI_API_KEY; // Using API key as derivation source for demo
+    const encoded = new TextEncoder().encode(JSON.stringify(intel));
+    return btoa(String.fromCharCode(...new Uint8Array(encoded)));
+}
 
     // WebSocket Handlers
     /**
      * Sends a standardized JSON error response.
      */
     private sendError(message: string, status = 400, data = {}): Response {
-        return Response.json({ success: false, error: message, ...data }, { status });
-    }
+    return Response.json({ success: false, error: message, ...data }, { status });
+}
 
     /**
      * Janitor Pattern: Autonomous cleanup of stale data and logs.
      * Time Complexity: O(N) where N is the number of stale rows.
      */
     async janitor() {
-        const now = Date.now();
-        const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-        const fortnightAgo = now - 14 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+    const fortnightAgo = now - 14 * 24 * 60 * 60 * 1000;
 
-        try {
-            // 1. Prune internal errors (> 7 days)
-            this.ctx.storage.sql.exec('DELETE FROM internal_errors WHERE created_at < ?', weekAgo);
+    try {
+        // 1. Prune internal errors (> 7 days)
+        this.ctx.storage.sql.exec('DELETE FROM internal_errors WHERE created_at < ?', weekAgo);
 
-            // 2. Prune low-importance graph nodes (> 14 days)
-            this.ctx.storage.sql.exec('DELETE FROM graph_nodes WHERE importance < 0.3 AND last_seen < ?', fortnightAgo);
+        // 2. Prune low-importance graph nodes (> 14 days)
+        this.ctx.storage.sql.exec('DELETE FROM graph_nodes WHERE importance < 0.3 AND last_seen < ?', fortnightAgo);
 
-            // 3. Clear expired rate limits
-            const limit = now - this.RATE_LIMIT_WINDOW;
-            for (const [ip, timestamps] of this.rateLimiter) {
-                const valid = timestamps.filter(t => t > limit);
-                if (valid.length === 0) this.rateLimiter.delete(ip);
-                else this.rateLimiter.set(ip, valid);
-            }
-
-            console.log("[ContentRefinery] Janitor cleanup complete.");
-        } catch (e) {
-            await this.logger.log('Janitor', e);
+        // 3. Clear expired rate limits
+        const limit = now - this.RATE_LIMIT_WINDOW;
+        for (const [ip, timestamps] of this.rateLimiter) {
+            const valid = timestamps.filter(t => t > limit);
+            if (valid.length === 0) this.rateLimiter.delete(ip);
+            else this.rateLimiter.set(ip, valid);
         }
+
+        console.log("[ContentRefinery] Janitor cleanup complete.");
+    } catch (e) {
+        await this.logger.log('Janitor', e);
     }
+}
 
     /**
      * Reflexion Pattern: Self-critique and refinement of AI outputs.
      * Samples recent signals and narratives to improve accuracy and consistency.
      */
     async reflect() {
-        try {
-            // 1. Sample recent signals for reflexion (limit 5 for cost control)
-            const signals = this.ctx.storage.sql.exec(
-                'SELECT * FROM content_items WHERE is_signal = 1 AND sentiment != "unknown" ORDER BY created_at DESC LIMIT 5'
-            ).toArray();
+    try {
+        // 1. Sample recent signals for reflexion (limit 5 for cost control)
+        const signals = this.ctx.storage.sql.exec(
+            'SELECT * FROM content_items WHERE is_signal = 1 AND sentiment != "unknown" ORDER BY created_at DESC LIMIT 5'
+        ).toArray();
 
-            for (const s of signals as any[]) {
-                const reflexionRes = await this.env.AI.run('@cf/meta/llama-3-8b-instruct', {
-                    messages: [
-                        { role: 'system', content: 'You are a critical reviewer. Analyze the previous extraction and sentiment for accuracy and objectivity.' },
-                        { role: 'user', content: `Original Text: ${s.raw_text}\nPrevious Extraction: ${s.processed_json}\nCritique this extraction and provide an improved JSON if necessary.` }
-                    ],
-                    response_format: { type: 'json_object' }
-                });
+        for (const s of signals as any[]) {
+            const reflexionRes = await this.env.AI.run('@cf/meta/llama-3-8b-instruct', {
+                messages: [
+                    { role: 'system', content: 'You are a critical reviewer. Analyze the previous extraction and sentiment for accuracy and objectivity.' },
+                    { role: 'user', content: `Original Text: ${s.raw_text}\nPrevious Extraction: ${s.processed_json}\nCritique this extraction and provide an improved JSON if necessary.` }
+                ],
+                response_format: { type: 'json_object' }
+            });
 
-                // Update if LLM suggests a significant change (this is a simplified implementation)
-                // In a production scenario, we'd compare the outputs more rigorously
-                if (reflexionRes.response) {
-                    // Logic to merge or update s.processed_json
-                    // For now, we log the success of the reflection step
-                    console.log(`[ContentRefinery] Reflected on signal ${s.id}`);
-                }
+            // Update if LLM suggests a significant change (this is a simplified implementation)
+            // In a production scenario, we'd compare the outputs more rigorously
+            if (reflexionRes.response) {
+                // Logic to merge or update s.processed_json
+                // For now, we log the success of the reflection step
+                console.log(`[ContentRefinery] Reflected on signal ${s.id}`);
             }
-
-            console.log("[ContentRefinery] Reflexion cycle complete.");
-        } catch (e) {
-            await this.logger.log('Reflexion', e);
         }
+
+        console.log("[ContentRefinery] Reflexion cycle complete.");
+    } catch (e) {
+        await this.logger.log('Reflexion', e);
     }
+}
 
     /**
-     * Durable Object Alarm handler for background maintenance.
+     * Durable Object Alarm handler - The heartbeat of the refinery.
+     * Manages RSS polling, batch ingestion, narrative synthesis, and maintenance.
      */
     async alarm() {
-        console.log('[ContentRefinery] Starting scheduled maintenance...');
-        try {
-            await this.janitor();
-            await this.detectNarratives();
-            await this.reflect();
-        } catch (e) {
-            await this.logger.log('AlarmHandler', e);
-        } finally {
-            // Reschedule (12 hours)
-            await this.ctx.storage.setAlarm(Date.now() + 12 * 60 * 60 * 1000);
-            console.log('[ContentRefinery] Maintenance complete. Next run scheduled.');
+    const now = Date.now();
+    console.log('[ContentRefinery] Alarm triggered. Processing heartbeat...');
+
+    try {
+        // 1. High-Frequency: Poll RSS and Process Batches
+        await this.pollRSSFeeds().catch(e => this.logger.log('RSS', e));
+        await this.processBatch().catch(e => this.logger.log('Batch', e));
+
+        // 2. Medium-Frequency: Narrative Synthesis (Every 1 hour)
+        const lastNarrative = await this.ctx.storage.get<number>('last_narrative_run') || 0;
+        if (now - lastNarrative > 60 * 60 * 1000) {
+            await this.detectNarratives().catch(e => this.logger.log('NarrativeEngine', e));
+            await this.ctx.storage.put('last_narrative_run', now);
+        }
+
+        // 3. Low-Frequency: Janitor and Reflexion (Every 12 hours)
+        const lastMaintenance = await this.ctx.storage.get<number>('last_maintenance_run') || 0;
+        if (now - lastMaintenance > 12 * 60 * 60 * 1000) {
+            await this.janitor().catch(e => this.logger.log('Janitor', e));
+            await this.reflect().catch(e => this.logger.log('Reflexion', e));
+            await this.ctx.storage.put('last_maintenance_run', now);
+        }
+
+    } catch (e) {
+        await this.logger.log('AlarmHeartbeat', e);
+    } finally {
+        // Default reschedule for polling/batching (5 minutes)
+        // Note: Ingestions may trigger shorter alarms (5s) via handleIngestInternal
+        const currentAlarm = await this.ctx.storage.getAlarm();
+        if (currentAlarm === null || currentAlarm <= now) {
+            await this.ctx.storage.setAlarm(now + 5 * 60 * 1000);
         }
     }
+}
+
+    /**
+     * Fetches the current state of the knowledge graph.
+     */
+    private async handleGraph(request: Request): Promise < Response > {
+    if(request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+    const nodes = this.ctx.storage.sql.exec('SELECT * FROM graph_nodes ORDER BY importance DESC LIMIT 200').toArray();
+    const nodeIds = nodes.map((n: any) => `'${n.id}'`).join(',');
+    const links = nodeIds ? this.ctx.storage.sql.exec(`SELECT * FROM graph_edges WHERE source IN (${nodeIds}) AND target IN (${nodeIds}) LIMIT 500`).toArray() : [];
+    return Response.json({ nodes, links });
+}
 
     async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-        // Optional: Handle client commands (e.g. subscribe to specific tickers)
-    }
+    // Optional: Handle client commands (e.g. subscribe to specific tickers)
+}
 
     async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
-        ws.close(code, reason);
-    }
+    ws.close(code, reason);
+}
 
     private isRateLimited(request: Request): boolean {
-        const ip = request.headers.get('cf-connecting-ip') || 'anonymous';
-        const now = Date.now();
-        const timestamps = this.rateLimiter.get(ip) || [];
-        const recentTimestamps = timestamps.filter(ts => now - ts < this.RATE_LIMIT_WINDOW);
+    const ip = request.headers.get('cf-connecting-ip') || 'anonymous';
+    const now = Date.now();
+    const timestamps = this.rateLimiter.get(ip) || [];
+    const recentTimestamps = timestamps.filter(ts => now - ts < this.RATE_LIMIT_WINDOW);
 
-        if (recentTimestamps.length >= this.RATE_LIMIT_THRESHOLD) return true;
+    if (recentTimestamps.length >= this.RATE_LIMIT_THRESHOLD) return true;
 
-        recentTimestamps.push(now);
-        this.rateLimiter.set(ip, recentTimestamps);
-        return false;
-    }
+    recentTimestamps.push(now);
+    this.rateLimiter.set(ip, recentTimestamps);
+    return false;
+}
 
     private getCache(type: 'signal' | 'narrative') {
-        const cache = type === 'signal' ? this.signalCache : this.narrativeCache;
-        if (cache && Date.now() - cache.timestamp < this.CACHE_TTL) return cache.data;
-        return null;
-    }
+    const cache = type === 'signal' ? this.signalCache : this.narrativeCache;
+    if (cache && Date.now() - cache.timestamp < this.CACHE_TTL) return cache.data;
+    return null;
+}
 
     private setCache(type: 'signal' | 'narrative', data: any) {
-        if (type === 'signal') this.signalCache = { data, timestamp: Date.now() };
-        else this.narrativeCache = { data, timestamp: Date.now() };
-    }
+    if (type === 'signal') this.signalCache = { data, timestamp: Date.now() };
+    else this.narrativeCache = { data, timestamp: Date.now() };
+}
 
     private invalidateCache() {
-        this.signalCache = null;
-        this.narrativeCache = null;
-    }
+    this.signalCache = null;
+    this.narrativeCache = null;
+}
 
     private async detectNarratives() {
-        console.log('[ContentRefinery] Detecting Market Narratives...');
+    console.log('[ContentRefinery] Detecting Market Narratives...');
 
-        // 1. Get signals from the last 12 hours
-        const signals = this.ctx.storage.sql.exec(`
+    // 1. Get signals from the last 12 hours
+    const signals = this.ctx.storage.sql.exec(`
             SELECT id, source_name, raw_text, processed_json, created_at 
             FROM content_items 
             WHERE is_signal = 1 AND created_at > ?
         `, Date.now() - 12 * 60 * 60 * 1000).toArray() as any[];
 
-        if (signals.length < 3) return;
+    if (signals.length < 3) return;
 
-        // 2. Identify clusters based on shared entities
-        const clusters: any[][] = [];
-        const processedIds = new Set<string>();
+    // 2. Identify clusters based on shared entities
+    const clusters: any[][] = [];
+    const processedIds = new Set<string>();
 
-        for (const s of signals) {
-            if (processedIds.has(s.id)) continue;
+    for (const s of signals) {
+        if (processedIds.has(s.id)) continue;
 
-            const sIntel = JSON.parse(s.processed_json).analysis.find((a: any) => a.source_ids?.includes(s.id));
-            if (!sIntel || !sIntel.triples) continue;
+        const sIntel = JSON.parse(s.processed_json).analysis.find((a: any) => a.source_ids?.includes(s.id));
+        if (!sIntel || !sIntel.triples) continue;
 
-            const sEntities = new Set(sIntel.triples.flatMap((t: any) => [t.subject, t.object]));
-            const cluster = [s];
-            processedIds.add(s.id);
+        const sEntities = new Set(sIntel.triples.flatMap((t: any) => [t.subject, t.object]));
+        const cluster = [s];
+        processedIds.add(s.id);
 
-            for (const other of signals) {
-                if (processedIds.has(other.id)) continue;
-                const oIntel = JSON.parse(other.processed_json).analysis.find((a: any) => a.source_ids?.includes(other.id));
-                if (!oIntel || !oIntel.triples) continue;
+        for (const other of signals) {
+            if (processedIds.has(other.id)) continue;
+            const oIntel = JSON.parse(other.processed_json).analysis.find((a: any) => a.source_ids?.includes(other.id));
+            if (!oIntel || !oIntel.triples) continue;
 
-                const oEntities = oIntel.triples.flatMap((t: any) => [t.subject, t.object]);
-                if (oEntities.some((e: string) => sEntities.has(e))) {
-                    cluster.push(other);
-                    processedIds.add(other.id);
-                }
-            }
-
-            if (cluster.length >= 2) {
-                clusters.push(cluster);
+            const oEntities = oIntel.triples.flatMap((t: any) => [t.subject, t.object]);
+            if (oEntities.some((e: string) => sEntities.has(e))) {
+                cluster.push(other);
+                processedIds.add(other.id);
             }
         }
 
-        // 3. For each cluster, synthesize a narrative
-        for (const cluster of clusters) {
-            const clusterTexts = cluster.map(c => `[${c.source_name}]: ${c.raw_text}`).join('\n\n');
-            const synthesisPrompt = `You are a Senior Macro Analyst. Synthesize the following signals into a cohesive market narrative.
+        if (cluster.length >= 2) {
+            clusters.push(cluster);
+        }
+    }
+
+    // 3. For each cluster, synthesize a narrative
+    for (const cluster of clusters) {
+        const clusterTexts = cluster.map(c => `[${c.source_name}]: ${c.raw_text}`).join('\n\n');
+        const synthesisPrompt = `You are a Senior Macro Analyst. Synthesize the following signals into a cohesive market narrative.
             Signals:
             ${clusterTexts}
             
@@ -1181,33 +1192,33 @@ export class ContentDO extends DurableObject<Env> {
                 "sentiment": "positive" | "negative" | "neutral"
             }`;
 
-            try {
-                const response = await fetch(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent?key=${this.env.GEMINI_API_KEY}`,
-                    {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{ role: 'user', parts: [{ text: synthesisPrompt }] }],
-                            generationConfig: { temperature: 0.3, response_mime_type: "application/json" }
-                        })
-                    }
-                );
-
-                const res = await response.json() as any;
-                const narrative = JSON.parse(res.candidates?.[0]?.content?.parts?.[0]?.text || '{}');
-
-                if (narrative.title && narrative.summary) {
-                    const id = crypto.randomUUID();
-                    this.ctx.storage.sql.exec(
-                        'INSERT INTO narratives (id, title, summary, sentiment, signals, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-                        id, narrative.title, narrative.summary, narrative.sentiment, JSON.stringify(cluster.map(c => c.id)), Date.now()
-                    );
-                    this.invalidateCache();
+        try {
+            const response = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent?key=${this.env.GEMINI_API_KEY}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ role: 'user', parts: [{ text: synthesisPrompt }] }],
+                        generationConfig: { temperature: 0.3, response_mime_type: "application/json" }
+                    })
                 }
-            } catch (e) {
-                await this.logger.log('NarrativeEngine', e, { clusterSize: cluster.length });
+            );
+
+            const res = await response.json() as any;
+            const narrative = JSON.parse(res.candidates?.[0]?.content?.parts?.[0]?.text || '{}');
+
+            if (narrative.title && narrative.summary) {
+                const id = crypto.randomUUID();
+                this.ctx.storage.sql.exec(
+                    'INSERT INTO narratives (id, title, summary, sentiment, signals, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+                    id, narrative.title, narrative.summary, narrative.sentiment, JSON.stringify(cluster.map(c => c.id)), Date.now()
+                );
+                this.invalidateCache();
             }
+        } catch (e) {
+            await this.logger.log('NarrativeEngine', e, { clusterSize: cluster.length });
         }
     }
+}
 }
