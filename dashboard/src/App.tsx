@@ -581,12 +581,12 @@ const RelationalView: React.FC = () => {
   }, []);
 
   return (
-    <div ref={containerRef} className="w-full h-full glass rounded-2xl overflow-hidden relative min-h-[600px]">
-      <div className="absolute top-4 left-4 z-10 bg-black/50 p-3 rounded-lg backdrop-blur-md">
-        <h3 className="font-bold text-accent flex items-center gap-2">
+    <div ref={containerRef} className="w-full h-full glass rounded-3xl overflow-hidden relative min-h-[500px] lg:min-h-[600px]">
+      <div className="absolute top-4 left-4 z-10 bg-black/50 p-3 rounded-xl backdrop-blur-md border border-white/10">
+        <h3 className="font-bold text-accent flex items-center gap-2 text-sm lg:text-base">
           <Share2 className="w-4 h-4" /> Market Knowledge Graph
         </h3>
-        <p className="text-xs text-white/50">Visualizing {data.nodes.length} entities & {data.links.length} relationships</p>
+        <p className="text-[10px] lg:text-xs text-white/50 font-mono">Visualizing {data.nodes.length} nodes & {data.links.length} edges</p>
       </div>
 
       {data.nodes.length > 0 ? (
@@ -597,17 +597,49 @@ const RelationalView: React.FC = () => {
           nodeLabel="label"
           nodeColor={() => "#4ade80"}
           nodeRelSize={6}
-          linkColor={() => "rgba(255,255,255,0.2)"}
+          linkColor={() => "rgba(255,255,255,0.1)"}
           backgroundColor="rgba(0,0,0,0)"
           d3AlphaDecay={0.02}
           d3VelocityDecay={0.3}
         />
       ) : (
-        <div className="flex items-center justify-center h-full text-white/20">
-          Loading graph data...
+        <div className="flex items-center justify-center h-full text-white/20 font-mono text-sm">
+          INITIALIZING GRAPH...
         </div>
       )}
     </div>
+  );
+};
+
+const BottomNav: React.FC<{
+  viewMode: 'feed' | 'graph';
+  setViewMode: (v: 'feed' | 'graph') => void;
+  onSettings: () => void;
+}> = ({ viewMode, setViewMode, onSettings }) => {
+  return (
+    <nav className="md:hidden fixed bottom-6 left-6 right-6 z-50 glass rounded-2xl p-2 px-6 flex justify-between items-center border border-white/10 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <button
+        onClick={() => setViewMode('feed')}
+        className={cn("flex flex-col items-center gap-1 p-2 transition-all", viewMode === 'feed' ? "text-accent" : "text-white/40")}
+      >
+        <Zap className="w-5 h-5" />
+        <span className="text-[10px] font-bold uppercase tracking-tighter">Feed</span>
+      </button>
+      <button
+        onClick={() => setViewMode('graph')}
+        className={cn("flex flex-col items-center gap-1 p-2 transition-all", viewMode === 'graph' ? "text-accent" : "text-white/40")}
+      >
+        <Share2 className="w-5 h-5" />
+        <span className="text-[10px] font-bold uppercase tracking-tighter">Graph</span>
+      </button>
+      <button
+        onClick={onSettings}
+        className="flex flex-col items-center gap-1 p-2 text-white/40 active:text-accent transition-all"
+      >
+        <Settings className="w-5 h-5" />
+        <span className="text-[10px] font-bold uppercase tracking-tighter">Setup</span>
+      </button>
+    </nav>
   );
 };
 
@@ -731,7 +763,12 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <div className="min-h-screen p-6 flex flex-col gap-6">
+    <div className="min-h-screen p-4 lg:p-6 flex flex-col gap-4 lg:gap-6 pb-24 md:pb-6">
+      <BottomNav
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+        onSettings={() => setShowSettings(true)}
+      />
       <TelegramLoginModal
         isOpen={showTelegramModal}
         onClose={() => setShowTelegramModal(false)}
@@ -750,8 +787,8 @@ const App: React.FC = () => {
             <Cpu className="text-accent w-6 h-6" />
           </div>
           <div>
-            <h1 className="font-bold text-xl tracking-tight">CONTENT REFINERY</h1>
-            <p className="text-xs text-white/50 font-mono uppercase tracking-widest">Institutional Intelligence v1.5</p>
+            <h1 className="font-bold text-lg lg:text-xl tracking-tight leading-none">CONTENT REFINERY</h1>
+            <p className="text-[10px] text-white/50 font-mono uppercase tracking-widest mt-1">Intelligence v1.5</p>
           </div>
         </div>
 
@@ -795,8 +832,8 @@ const App: React.FC = () => {
             {telegramStatus === 'online' ? 'TG LIVE' : telegramStatus === 'offline' ? 'TG READY' : 'TG SETUP'}
           </button>
 
-          <div className="flex items-center gap-2 glass px-3 py-1 rounded-full text-xs font-mono">
-            <div className={cn("w-2 h-2 rounded-full",
+          <div className="hidden sm:flex items-center gap-2 glass px-3 py-1 rounded-full text-[10px] font-mono border border-white/5">
+            <div className={cn("w-1.5 h-1.5 rounded-full",
               status === 'online' ? "bg-success animate-pulse" : "bg-danger"
             )} />
             {status.toUpperCase()}
@@ -854,18 +891,18 @@ const App: React.FC = () => {
                   )}
                   {!historyMode && (
                     <div className="flex gap-2">
-                      <button className="glass p-2 rounded-lg hover:bg-white/5 transition-colors"><Search className="w-4 h-4" onClick={() => setHistoryMode(true)} /></button>
-                      <button className="glass p-2 rounded-lg hover:bg-white/5 transition-colors"><Bell className="w-4 h-4" /></button>
+                      <button className="glass p-2 rounded-xl hover:bg-white/5 transition-colors" onClick={() => setHistoryMode(true)}><Search className="w-4 h-4" /></button>
+                      <button className="glass p-2 rounded-xl hover:bg-white/5 transition-colors"><Bell className="w-4 h-4" /></button>
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="flex-1 glass rounded-2xl overflow-hidden flex flex-col">
-                <div className="grid grid-cols-4 text-xs font-mono text-white/40 p-4 border-b border-white/5">
+              <div className="flex-1 glass rounded-3xl overflow-hidden flex flex-col border border-white/5">
+                <div className="grid grid-cols-4 text-[10px] font-mono text-white/40 p-4 border-b border-white/5 bg-white/[0.02]">
                   <span>SOURCE</span>
                   <span className="col-span-2">SUMMARY</span>
-                  <span className="text-right">IMPACT</span>
+                  <span className="text-right">ALPHA</span>
                 </div>
                 <div className="flex-1 overflow-y-auto terminal-scroll p-4 space-y-4">
                   {(historyMode ? searchResults : signals).length === 0 ? (
@@ -883,9 +920,9 @@ const App: React.FC = () => {
                           <span className="text-sm line-clamp-1 block">{s.summary}</span>
                           {s.tags && s.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1">
-                              {s.tags.map((tag, i) => (
-                                <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-white/40 border border-white/5">
-                                  #{tag}
+                              {s.tags.slice(0, 3).map((tag, i) => (
+                                <span key={i} className="text-[9px] px-1.5 py-0.5 rounded-md bg-white/5 text-white/40 border border-white/5 font-mono uppercase">
+                                  {tag}
                                 </span>
                               ))}
                             </div>
@@ -990,19 +1027,19 @@ const App: React.FC = () => {
               </div>
 
               {/* Network Stats */}
-              <div className="glass p-5 rounded-2xl flex-1 flex flex-col gap-4">
-                <h3 className="font-bold flex items-center gap-2">
+              <div className="glass p-5 rounded-3xl flex-1 flex flex-col gap-4 border border-white/5">
+                <h3 className="font-bold flex items-center gap-2 text-sm">
                   <Activity className="text-accent w-5 h-5" />
-                  Network Metrics
+                  Network Data
                 </h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-3 bg-white/5 rounded-xl border border-white/5">
-                    <p className="text-[10px] text-white/40 uppercase font-bold mb-1">Total Signals</p>
-                    <p className="text-2xl font-mono font-bold">1.2k</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 glass rounded-2xl border border-white/5 bg-white/[0.02]">
+                    <p className="text-[9px] text-white/30 uppercase font-bold mb-1 tracking-widest">Throughput</p>
+                    <p className="text-xl font-mono font-bold">1.2k</p>
                   </div>
-                  <div className="p-3 bg-white/5 rounded-xl border border-white/5">
-                    <p className="text-[10px] text-white/40 uppercase font-bold mb-1">Latency</p>
-                    <p className="text-2xl font-mono font-bold text-success">42ms</p>
+                  <div className="p-3 glass rounded-2xl border border-white/5 bg-white/[0.02]">
+                    <p className="text-[9px] text-white/30 uppercase font-bold mb-1 tracking-widest">Latency</p>
+                    <p className="text-xl font-mono font-bold text-success">42ms</p>
                   </div>
                 </div>
                 <div className="flex-1 flex flex-col justify-end">
