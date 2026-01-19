@@ -1944,17 +1944,28 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
                         chatId = item.source_id;
                     }
 
+                    // Resolve Peer Entity first (required for PeerUser retrieval)
+                    let peer: any = null;
+                    try {
+                        // Gram.js gets better results if we provide the Peer object or numeric ID
+                        peer = await (tg.getClient() as any).getEntity(chatId);
+                    } catch (e: any) {
+                        this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                            crypto.randomUUID(), "DEBUG_DIGEST", `❌ Failed to resolve entity for ${chatId}: ${e.message}`, Date.now());
+                        continue;
+                    }
+
                     // Fetch specific message by ID if available, otherwise search recent messages
                     let match: any = null;
                     if (messageId) {
                         this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                            crypto.randomUUID(), "DEBUG_DIGEST", `Fetching messageId ${messageId} from chatId ${chatId}...`, Date.now());
-                        const messages = await (tg as any).getMessages(chatId, { ids: [messageId] });
+                            crypto.randomUUID(), "DEBUG_DIGEST", `Fetching messageId ${messageId} from ${chatId}...`, Date.now());
+                        const messages = await (tg as any).getMessages(peer, { ids: [messageId] });
                         match = messages?.[0];
                     } else {
                         this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                            crypto.randomUUID(), "DEBUG_DIGEST", `Searching recent messages in chatId ${chatId}...`, Date.now());
-                        const messages = await (tg as any).getMessages(chatId, { limit: 20 });
+                            crypto.randomUUID(), "DEBUG_DIGEST", `Searching recent messages in ${chatId}...`, Date.now());
+                        const messages = await (tg as any).getMessages(peer, { limit: 20 });
                         match = messages.find((m: any) => m.media && m.media.document && m.media.document.mimeType === 'application/pdf');
                     }
 
