@@ -1338,12 +1338,6 @@ export class ContentDO extends DurableObject<Env> {
     }
 
     // WebSocket Handlers
-    /**
-     * Sends a standardized JSON error response.
-     */
-    private sendError(message: string, status = 400, data = {}): Response {
-        return Response.json({ success: false, error: message, ...data }, { status });
-    }
 
     /**
      * Janitor Pattern: Autonomous cleanup of stale data and logs.
