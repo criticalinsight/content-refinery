@@ -137,13 +137,16 @@ export class TelegramManager {
 
     /**
      * Checks if the client is currently logged in.
+     * Attempts to reconnect if disconnected but session exists.
      */
     async isLoggedIn(): Promise<boolean> {
-        if (!this.client || !this.client.connected) return false;
         try {
+            await this.connect();
+            if (!this.client) return false;
             const me = await this.client.getMe();
             return !!me;
-        } catch (e) {
+        } catch (e: any) {
+            console.warn("[TelegramManager] isLoggedIn check failed:", e.message);
             return false;
         }
     }
@@ -179,6 +182,15 @@ export class TelegramManager {
                 });
             }
         }, new NewMessage({}));
+
+        // MTProto connection monitoring
+        this.client?.addEventHandler(async (event) => {
+            // Handle disconnection/reconnection if library doesn't automatically
+            if (event instanceof Api.UpdateConnectionState) {
+                console.log("[TelegramManager] Connection state update:", event);
+            }
+        });
+
         this.isListening = true;
     }
 
