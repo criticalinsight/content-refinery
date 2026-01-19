@@ -181,24 +181,19 @@ export class TelegramManager {
             // Gram.js stores IDs as BigInt in some versions, so we need to handle that
             const chatId = String(peer?.channelId ?? peer?.chatId ?? peer?.userId ?? 'unknown');
 
-            // Handle Text
-            if (message.message) {
-                await onMessage({
-                    chatId,
-                    messageId: message.id,
-                    title: "Telegram Live",
-                    text: message.message
-                });
-            }
+            // Handle Text and Media
+            if (message.message || message.media) {
+                const isMediaValid = message.media && (
+                    message.media instanceof Api.MessageMediaDocument ||
+                    message.media instanceof Api.MessageMediaPhoto
+                );
 
-            // Handle Media (Voice/Audio/Photo/Document)
-            else if (message.media && (message.media instanceof Api.MessageMediaDocument || message.media instanceof Api.MessageMediaPhoto)) {
-                // Pass the whole message for downloading later
                 await onMessage({
                     chatId,
                     messageId: message.id,
                     title: "Telegram Live",
-                    media: message
+                    text: message.message || "",
+                    media: isMediaValid ? message : undefined
                 });
             }
         }, new NewMessage({ incoming: true, outgoing: true }));
