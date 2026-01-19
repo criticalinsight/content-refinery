@@ -36,6 +36,15 @@ interface AlphaNode {
   velocity: number;
 }
 
+interface Narrative {
+  id: string;
+  title: string;
+  summary: string;
+  sentiment: 'positive' | 'negative' | 'neutral';
+  signals: string[];
+  created_at: number;
+}
+
 type TelegramStatus = 'unconfigured' | 'offline' | 'online' | 'error' | 'loading';
 
 const TelegramLoginModal: React.FC<{
@@ -611,19 +620,73 @@ const RelationalView: React.FC = () => {
   );
 };
 
+const NarrativeCard: React.FC<{ narrative: Narrative }> = ({ narrative }) => {
+  return (
+    <div className="glass p-6 rounded-3xl border border-white/5 flex flex-col gap-4 hover:bg-white/[0.02] transition-all group animate-in slide-in-from-bottom-2 duration-500">
+      <div className="flex justify-between items-start">
+        <div className="flex items-center gap-2">
+          <BookOpen className="w-4 h-4 text-accent" />
+          <span className="text-[10px] font-mono text-white/40 uppercase tracking-widest">Market Narrative</span>
+        </div>
+        <div className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full uppercase border font-mono",
+          narrative.sentiment === 'positive' ? "text-success border-success/30 bg-success/10" :
+            narrative.sentiment === 'negative' ? "text-danger border-danger/30 bg-danger/10" :
+              "text-white/40 border-white/10"
+        )}>
+          {narrative.sentiment}
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-lg font-bold tracking-tight mb-2 group-hover:text-accent transition-colors">
+          {narrative.title}
+        </h3>
+        <p className="text-sm text-white/60 leading-relaxed font-medium">
+          {narrative.summary}
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/5">
+        <div className="flex -space-x-2">
+          {narrative.signals.slice(0, 3).map((_, i) => (
+            <div key={i} className="w-6 h-6 rounded-full bg-white/5 border border-white/10 flex items-center justify-center backdrop-blur-md">
+              <Zap className="w-3 h-3 text-white/40" />
+            </div>
+          ))}
+          {narrative.signals.length > 3 && (
+            <div className="w-6 h-6 rounded-full bg-white/10 border border-white/10 flex items-center justify-center backdrop-blur-md text-[8px] font-bold">
+              +{narrative.signals.length - 3}
+            </div>
+          )}
+        </div>
+        <span className="text-[10px] font-mono text-white/20">
+          {new Date(narrative.created_at).toLocaleTimeString()}
+        </span>
+      </div>
+    </div>
+  );
+};
+
 const BottomNav: React.FC<{
-  viewMode: 'feed' | 'graph';
-  setViewMode: (v: 'feed' | 'graph') => void;
+  viewMode: 'feed' | 'graph' | 'narratives';
+  setViewMode: (v: 'feed' | 'graph' | 'narratives') => void;
   onSettings: () => void;
 }> = ({ viewMode, setViewMode, onSettings }) => {
   return (
-    <nav className="md:hidden fixed bottom-6 left-6 right-6 z-50 glass rounded-2xl p-2 px-6 flex justify-between items-center border border-white/10 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <nav className="md:hidden fixed bottom-6 left-6 right-6 z-50 glass rounded-2xl p-2 px-4 flex justify-between items-center border border-white/10 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 duration-500">
       <button
         onClick={() => setViewMode('feed')}
         className={cn("flex flex-col items-center gap-1 p-2 transition-all", viewMode === 'feed' ? "text-accent" : "text-white/40")}
       >
         <Zap className="w-5 h-5" />
         <span className="text-[10px] font-bold uppercase tracking-tighter">Feed</span>
+      </button>
+      <button
+        onClick={() => setViewMode('narratives')}
+        className={cn("flex flex-col items-center gap-1 p-2 transition-all", viewMode === 'narratives' ? "text-accent" : "text-white/40")}
+      >
+        <BookOpen className="w-5 h-5" />
+        <span className="text-[10px] font-bold uppercase tracking-tighter">Stories</span>
       </button>
       <button
         onClick={() => setViewMode('graph')}
