@@ -173,6 +173,9 @@ export class ContentDO extends DurableObject<Env> {
     }
 
     async fetch(request: Request): Promise<Response> {
+        if (this.isRateLimited(request)) {
+            return new Response('Too many requests', { status: 429 });
+        }
         const url = new URL(request.url);
 
         if (url.pathname === '/sources/rss') {
@@ -424,11 +427,19 @@ export class ContentDO extends DurableObject<Env> {
             const from = url.searchParams.get('from');
             const to = url.searchParams.get('to');
             const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
-            const offset = parseInt(url.searchParams.get('offset') || '0');
+
+            // Basic caching for unfiltered requests
+            if (!query && !source && !sentiment && !urgent && !from && !to && offset === 0) {
+                const cached = this.getCache('signal');
+                if (cached) return Response.json(cached);
+            }
 
             let sql = `SELECT id, source_id, source_name, raw_text, processed_json, sentiment, created_at 
                        FROM content_items WHERE is_signal = 1`;
             const params: any[] = [];
+
+            // ... (rest of search logic remains same but I'll skip to where it returns)
+            // Wait, I need to replace the whole block to be safe or target the return
 
             if (query) {
                 sql += ` AND raw_text LIKE ?`;
@@ -603,18 +614,24 @@ export class ContentDO extends DurableObject<Env> {
     async handleNarratives(request: Request): Promise<Response> {
         if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
 
+        const cached = this.getCache('narrative');
+        if (cached) return Response.json(cached);
+
         const narratives = this.ctx.storage.sql.exec(`
             SELECT * FROM narratives 
             ORDER BY created_at DESC 
             LIMIT 5
         `).toArray() as any[];
 
-        return Response.json({
+        const responseData = {
             narratives: narratives.map(n => ({
                 ...n,
                 signals: JSON.parse(n.signals)
             }))
-        });
+        };
+
+        this.setCache('narrative', responseData);
+        return Response.json(responseData);
     }
 
     // RSS Management Endpoints
@@ -1020,6 +1037,35 @@ export class ContentDO extends DurableObject<Env> {
 
     async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
         ws.close(code, reason);
+    }
+
+    private isRateLimited(request: Request): boolean {
+        const ip = request.headers.get('cf-connecting-ip') || 'anonymous';
+        const now = Date.now();
+        const timestamps = this.rateLimiter.get(ip) || [];
+        const recentTimestamps = timestamps.filter(ts => now - ts < this.RATE_LIMIT_WINDOW);
+
+        if (recentTimestamps.length >= this.RATE_LIMIT_THRESHOLD) return true;
+
+        recentTimestamps.push(now);
+        this.rateLimiter.set(ip, recentTimestamps);
+        return false;
+    }
+
+    private getCache(type: 'signal' | 'narrative') {
+        const cache = type === 'signal' ? this.signalCache : this.narrativeCache;
+        if (cache && Date.now() - cache.timestamp < this.CACHE_TTL) return cache.data;
+        return null;
+    }
+
+    private setCache(type: 'signal' | 'narrative', data: any) {
+        if (type === 'signal') this.signalCache = { data, timestamp: Date.now() };
+        else this.narrativeCache = { data, timestamp: Date.now() };
+    }
+
+    private invalidateCache() {
+        this.signalCache = null;
+        this.narrativeCache = null;
     }
 
     private async detectNarratives() {
