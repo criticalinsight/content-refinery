@@ -989,12 +989,11 @@ const App: React.FC = () => {
                     </div>
                   ) : (
                     (historyMode ? searchResults : signals).map(s => (
-                      <div key={s.id} className={cn(
-                        "grid grid-cols-4 items-center p-3 rounded-lg border border-transparent transition-all",
-                        s.urgent ? "bg-danger/5 border-danger/20" : "hover:bg-white/5"
-                      )}>
-                        <span className="text-xs font-mono font-bold text-accent">{s.source}</span>
-                        <div className="col-span-2 space-y-1">
+                      <div key={s.id} className="grid grid-cols-4 gap-4 items-start group hover:bg-white/[0.02] p-2 rounded-xl transition-all cursor-crosshair">
+                        <div className="text-[10px] font-mono text-white/50 truncate uppercase leading-tight font-bold group-hover:text-accent transition-colors">
+                          {s.source_name}
+                        </div>
+                        <div className="col-span-2 space-y-1.5">
                           <span className="text-sm line-clamp-1 block">{s.summary}</span>
                           {s.tags && s.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1">
@@ -1006,13 +1005,15 @@ const App: React.FC = () => {
                             </div>
                           )}
                         </div>
-                        <div className="flex flex-col items-end gap-1">
-                          <span className={cn("text-xs font-mono font-bold",
-                            s.relevance > 80 ? "text-success" : "text-white/60"
-                          )}>{s.relevance}%</span>
-                          <div className="w-16 h-1 bg-white/5 rounded-full overflow-hidden">
-                            <div className="h-full bg-accent" style={{ width: `${s.relevance}%` }} />
-                          </div>
+                        <div className="text-right flex flex-col items-end">
+                          <span className={cn("text-[10px] font-mono font-bold px-1.5 py-0.5 rounded",
+                            s.sentiment === 'positive' ? "bg-success/20 text-success" :
+                              s.sentiment === 'negative' ? "bg-danger/20 text-danger" :
+                                "bg-white/5 text-white/40"
+                          )}>
+                            {s.sentiment === 'positive' ? '+AL' : s.sentiment === 'negative' ? '-AL' : 'NEU'}
+                          </span>
+                          <span className="text-[9px] font-mono text-white/20 mt-1">{new Date(s.created_at).toLocaleTimeString()}</span>
                         </div>
                       </div>
                     ))
@@ -1022,7 +1023,7 @@ const App: React.FC = () => {
             </div>
 
             {/* Sidebar - Col 3 */}
-            <div className="flex flex-col gap-6 overflow-y-auto pr-1">
+            <aside className="flex flex-col gap-6 overflow-y-auto pr-1">
               {/* Telegram Status Card */}
               <div className={cn(
                 "glass p-5 rounded-2xl",
@@ -1056,14 +1057,11 @@ const App: React.FC = () => {
               </div>
 
               {/* Alpha Forecast Card */}
-              <div className="glass p-5 rounded-2xl bg-gradient-to-br from-accent/10 to-transparent">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="font-bold flex items-center gap-2">
-                    <TrendingUp className="text-accent w-5 h-5" />
-                    Alpha Engine
-                  </h3>
-                  <ArrowUpRight className="text-white/20 w-5 h-5" />
-                </div>
+              <div className="glass p-5 rounded-3xl border border-white/5 bg-white/[0.01]">
+                <h3 className="font-bold flex items-center gap-2 mb-6 text-sm">
+                  <TrendingUp className="text-accent w-5 h-5 shadow-[0_0_15px_rgba(74,222,128,0.3)]" />
+                  Alpha Engine
+                </h3>
 
                 {alphaNodes.length > 0 ? (
                   <div className="space-y-4">
@@ -1116,8 +1114,8 @@ const App: React.FC = () => {
                     <p className="text-xl font-mono font-bold">1.2k</p>
                   </div>
                   <div className="p-3 glass rounded-2xl border border-white/5 bg-white/[0.02]">
-                    <p className="text-[9px] text-white/30 uppercase font-bold mb-1 tracking-widest">Latency</p>
                     <p className="text-xl font-mono font-bold text-success">42ms</p>
+                    <p className="text-[9px] text-white/30 uppercase font-bold mt-1 tracking-widest">Latency</p>
                   </div>
                 </div>
                 <div className="flex-1 flex flex-col justify-end">
@@ -1129,6 +1127,20 @@ const App: React.FC = () => {
               </div>
             </aside>
           </>
+        ) : viewMode === 'narratives' ? (
+          <div className="flex-1 overflow-y-auto terminal-scroll grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-1">
+            {narratives.length > 0 ? (
+              narratives.map(n => <NarrativeCard key={n.id} narrative={n} />)
+            ) : (
+              <div className="col-span-full h-full flex flex-col items-center justify-center text-white/20 py-20 grayscale opacity-50 border border-white/5 rounded-3xl bg-white/[0.01]">
+                <BookOpen className="w-16 h-16 mb-4 text-accent" />
+                <h3 className="text-xl font-bold font-mono text-white/80">SYNTHESIZING NARRATIVES...</h3>
+                <p className="text-sm font-mono mt-2 text-white/40">Correlation Engine is scanning for clusters.</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <RelationalView />
         )}
       </main>
 
