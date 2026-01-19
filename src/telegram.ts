@@ -183,14 +183,6 @@ export class TelegramManager {
             }
         }, new NewMessage({}));
 
-        // MTProto connection monitoring
-        this.client?.addEventHandler(async (event) => {
-            // Handle disconnection/reconnection if library doesn't automatically
-            if (event instanceof Api.UpdateConnectionState) {
-                console.log("[TelegramManager] Connection state update:", event);
-            }
-        });
-
         this.isListening = true;
     }
 
