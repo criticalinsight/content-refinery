@@ -850,6 +850,12 @@ export class ContentDO extends DurableObject<Env> {
      * Handles administrative and direct ingestion endpoints.
      */
     private async handleAdmin(request: Request, url: URL): Promise<Response> {
+        if (url.pathname === '/admin/reset-processing') {
+            // Force re-processing of ALL items
+            this.ctx.storage.sql.exec('UPDATE content_items SET processed_json = NULL, is_signal = 0');
+            return Response.json({ success: true, message: 'All items queued for reprocessing' });
+        }
+
         if (url.pathname === '/admin/backfill' && request.method === 'POST') {
             const { limit = 100, chatId } = await request.json() as any;
             const tg = await this.ensureTelegram();
