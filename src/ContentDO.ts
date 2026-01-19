@@ -1126,8 +1126,9 @@ export class ContentDO extends DurableObject<Env> {
                         await this.mirrorSignal(intel, sourceId, items[0].source_name);
                     }
 
-                    if (Array.isArray(intel.source_ids)) {
-                        for (const sid of intel.source_ids) {
+                    const sourceIds = intel.signals || intel.source_ids;
+                    if (Array.isArray(sourceIds)) {
+                        for (const sid of sourceIds) {
                             this.ctx.storage.sql.exec('UPDATE content_items SET is_signal = 1, tags = ? WHERE id = ?', JSON.stringify(intel.tags || []), sid);
                         }
                     }
