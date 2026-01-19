@@ -311,6 +311,16 @@ export class ContentDO extends DurableObject<Env> {
             return Response.json({ success: true, message: 'Telegram session cleared. Re-auth via QR required.' });
         }
 
+        if (url.pathname === '/telegram/auth/restore' && request.method === 'POST') {
+            const { session } = await request.json() as any;
+            if (!session) return this.sendError('Missing session string');
+            await this.ctx.storage.put('tg_session', session);
+            this.telegram = null; // Force recreation on next ensureTelegram
+            const tg = await this.ensureTelegram();
+            const loggedIn = await tg.isLoggedIn();
+            return Response.json({ success: true, status: loggedIn ? 'online' : 'offline', message: 'Session string restored.' });
+        }
+
         if (url.pathname === '/telegram/auth/status' && request.method === 'GET') {
             if (!this.env.TELEGRAM_API_ID || !this.env.TELEGRAM_API_HASH) {
                 return this.sendError('TELEGRAM_API_ID and TELEGRAM_API_HASH must be set as secrets.', 500, { status: 'unconfigured' });
