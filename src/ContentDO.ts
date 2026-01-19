@@ -1979,12 +1979,19 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
                                 crypto.randomUUID(), "DEBUG_DIGEST", `📝 Attempting Cloudflare toMarkdown conversion...`, Date.now());
                             
                             const blob = new Blob([buffer], { type: 'application/pdf' });
-                            const mdResult = await (this.env.AI as any).toMarkdown(blob);
+                            // env.AI.toMarkdown expects an object containing a blob
+                            const mdResult = await (this.env.AI as any).toMarkdown({ blob });
+                            
                             if (mdResult && mdResult.text) {
                                 const text = mdResult.text as string;
                                 markdown = text;
                                 this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
                                     crypto.randomUUID(), "DEBUG_DIGEST", `✅ toMarkdown Success (${text.length} chars)`, Date.now());
+                            } else if (mdResult && mdResult.data) {
+                                // Some versions return .data instead of .text
+                                markdown = mdResult.data as string;
+                                this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                                    crypto.randomUUID(), "DEBUG_DIGEST", `✅ toMarkdown Success (${markdown.length} chars)`, Date.now());
                             }
                         } catch (e: any) {
                             this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
