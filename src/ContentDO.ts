@@ -1134,11 +1134,15 @@ export class ContentDO extends DurableObject<Env> {
                     }
                     // Process Triples
                     if (Array.isArray(intel.triples)) {
-                        for (const triple of intel.triples) {
-                            if (triple.subject && triple.predicate && triple.object) {
+                        for (const t of intel.triples) {
+                            const subject = t.subject || t.s;
+                            const predicate = t.predicate || t.p;
+                            const object = t.object || t.o;
+
+                            if (subject && predicate && object) {
                                 // Insert Nodes
-                                this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO graph_nodes (id, label, type, last_seen, sentiment_score, velocity) VALUES (?, ?, 'entity', ?, 0, 0)`, triple.subject, triple.subject, Date.now());
-                                this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO graph_nodes (id, label, type, last_seen, sentiment_score, velocity) VALUES (?, ?, 'entity', ?, 0, 0)`, triple.object, triple.object, Date.now());
+                                this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO graph_nodes (id, label, type, last_seen, sentiment_score, velocity) VALUES (?, ?, 'entity', ?, 0, 0)`, subject, subject, Date.now());
+                                this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO graph_nodes (id, label, type, last_seen, sentiment_score, velocity) VALUES (?, ?, 'entity', ?, 0, 0)`, object, object, Date.now());
 
                                 // Map sentiment to score
                                 let sentScore = 0;
@@ -1147,19 +1151,19 @@ export class ContentDO extends DurableObject<Env> {
 
                                 // Update Node Stats (Importance, Sentiment, Velocity)
                                 this.ctx.storage.sql.exec(`
-                                    UPDATE graph_nodes 
-                                    SET importance = importance + 0.1, 
-                                        velocity = velocity + 1,
-                                        sentiment_score = sentiment_score + ?,
-                                        last_seen = ? 
-                                    WHERE id IN (?, ?)
-                                `, sentScore, Date.now(), triple.subject, triple.object);
+                                UPDATE graph_nodes 
+                                SET importance = importance + 0.1, 
+                                    velocity = velocity + 1,
+                                    sentiment_score = sentiment_score + ?,
+                                    last_seen = ? 
+                                WHERE id IN (?, ?)
+                            `, sentScore, Date.now(), subject, object);
 
                                 // Insert/Update Edge
                                 this.ctx.storage.sql.exec(`
-                                    INSERT INTO graph_edges (source, target, relation, weight, last_seen) VALUES (?, ?, ?, 1.0, ?)
-                                    ON CONFLICT(source, target, relation) DO UPDATE SET weight = weight + 0.5, last_seen = excluded.last_seen
-                                `, triple.subject, triple.object, triple.predicate, Date.now());
+                                INSERT INTO graph_edges (source, target, relation, weight, last_seen) VALUES (?, ?, ?, 1.0, ?)
+                                ON CONFLICT(source, target, relation) DO UPDATE SET weight = weight + 0.5, last_seen = excluded.last_seen
+                            `, subject, object, predicate, Date.now());
                             }
                         }
                     }
