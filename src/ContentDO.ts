@@ -36,11 +36,13 @@ export class ContentDO extends DurableObject<Env> {
     constructor(ctx: DurableObjectState, public env: Env) {
         super(ctx, env);
         this.logger = new ErrorLogger(this.ctx.storage);
-        this.migrateSchema();
-        this.resumeTelegramSession();
 
-        // Schedule first janitor run if not already set
-        this.scheduleNextMaintenance();
+        // Robust async initialization
+        this.ctx.blockConcurrencyWhile(async () => {
+            this.migrateSchema();
+            await this.resumeTelegramSession();
+            await this.scheduleNextMaintenance();
+        });
     }
 
     /**
@@ -58,8 +60,12 @@ export class ContentDO extends DurableObject<Env> {
         try {
             const sessionStr = await this.ctx.storage.get<string>('tg_session');
             if (sessionStr) {
-                await this.ensureTelegram();
-                console.log("[ContentRefinery] Telegram session auto-resumed on startup.");
+                const tg = await this.ensureTelegram();
+                if (await tg.isLoggedIn()) {
+                    console.log("[ContentRefinery] Telegram session auto-resumed on startup.");
+                } else {
+                    console.warn("[ContentRefinery] Resumed session is invalid. Re-auth required.");
+                }
             }
         } catch (e) {
             console.error("[ContentRefinery] Failed to auto-resume Telegram:", e);
@@ -67,27 +73,38 @@ export class ContentDO extends DurableObject<Env> {
     }
 
     private async ensureTelegram(): Promise<TelegramManager> {
-        if (this.telegram && this.telegram.getClient()?.connected) return this.telegram;
+        if (this.telegram && this.telegram.getClient()?.connected) {
+            const loggedIn = await this.telegram.isLoggedIn();
+            if (loggedIn) return this.telegram;
+        }
 
         const sessionStr = await this.ctx.storage.get<string>('tg_session') || "";
         this.telegram = new TelegramManager(this.env, sessionStr, async (newSession) => {
-            await this.ctx.storage.put('tg_session', newSession);
-            console.log("[ContentRefinery] Telegram session updated and persisted.");
+            if (newSession) {
+                await this.ctx.storage.put('tg_session', newSession);
+                console.log("[ContentRefinery] Telegram session updated and persisted.");
+            }
         });
-        await this.telegram.connect();
 
-        if (await this.telegram.isLoggedIn()) {
-            this.telegram.listen(async (msg) => {
-                await this.handleIngestInternal(msg);
-            });
-            console.log("[ContentRefinery] Live Telegram listener resumed.");
+        try {
+            await this.telegram.connect();
 
-            // Phase 16: Admin Alerts
-            this.logger.setNotifyCallback(async (module, message) => {
-                const ADMIN_ID = "-1003589267081"; // Fallback to alpha channel, or specific admin ID
-                const alertMsg = `🚨 <b>SYSTEM ALERT</b>\n<b>Module:</b> ${module}\n<b>Error:</b> ${message}\n<i>Refinery is continuing with reduced capacity.</i>`;
-                await this.telegram?.sendMessage(ADMIN_ID, alertMsg);
-            });
+            if (await this.telegram.isLoggedIn()) {
+                this.telegram.listen(async (msg) => {
+                    await this.handleIngestInternal(msg);
+                });
+                console.log("[ContentRefinery] Live Telegram listener resumed.");
+
+                // Phase 16: Admin Alerts
+                this.logger.setNotifyCallback(async (module, message) => {
+                    const ADMIN_ID = "-1003589267081";
+                    const alertMsg = `🚨 <b>SYSTEM ALERT</b>\n<b>Module:</b> ${module}\n<b>Error:</b> ${message}\n<i>Refinery is continuing with reduced capacity.</i>`;
+                    await this.telegram?.sendMessage(ADMIN_ID, alertMsg);
+                });
+            }
+        } catch (e) {
+            console.error("[ContentRefinery] ensureTelegram failed:", e);
+            throw e;
         }
 
         return this.telegram;
