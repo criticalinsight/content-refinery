@@ -1061,37 +1061,55 @@ const App: React.FC = () => {
                     <div className="h-full flex items-center justify-center text-white/20 italic text-sm">
                       {historyMode ? (searchQuery ? 'No results found.' : 'Search for historical signals...') : 'Waiting for incoming signals...'}
                     </div>
-                  ) : (
-                    (historyMode ? searchResults : signals).map(s => (
-                      <div key={s.id} className="grid grid-cols-4 gap-4 items-start group hover:bg-white/[0.02] p-2 rounded-xl transition-all cursor-crosshair">
-                        <div className="text-[10px] font-mono text-white/50 truncate uppercase leading-tight font-bold group-hover:text-accent transition-colors">
-                          {s.source_name}
+                  ) : (() => {
+                    // Group signals by channel
+                    const grouped: Record<string, Signal[]> = {};
+                    (historyMode ? searchResults : signals).forEach(s => {
+                      const channel = s.source_name || 'Unknown';
+                      if (!grouped[channel]) grouped[channel] = [];
+                      grouped[channel].push(s);
+                    });
+
+                    return Object.entries(grouped).map(([channel, channelSignals]) => (
+                      <div key={channel} className="mb-6">
+                        <div className="sticky top-0 bg-black/80 backdrop-blur-md py-2 mb-3 z-10 flex items-center gap-2">
+                          <Rss className="w-3 h-3 text-accent" />
+                          <span className="text-[10px] font-bold text-accent uppercase tracking-widest">{channel}</span>
+                          <span className="text-[9px] text-white/30 ml-auto">{channelSignals.length} signals</span>
                         </div>
-                        <div className="col-span-2 space-y-1.5">
-                          <span className="text-sm line-clamp-1 block">{s.summary}</span>
-                          {s.tags && s.tags.length > 0 && (
-                            <div className="flex flex-wrap gap-1">
-                              {s.tags.slice(0, 3).map((tag, i) => (
-                                <span key={i} className="text-[9px] px-1.5 py-0.5 rounded-md bg-white/5 text-white/40 border border-white/5 font-mono uppercase">
-                                  {tag}
+                        <div className="space-y-2">
+                          {channelSignals.map(s => (
+                            <div key={s.id} className="grid grid-cols-4 gap-4 items-start group hover:bg-white/[0.02] p-2 rounded-xl transition-all cursor-crosshair">
+                              <div className="text-[10px] font-mono text-white/30 truncate uppercase leading-tight">
+                                {new Date(s.created_at).toLocaleTimeString()}
+                              </div>
+                              <div className="col-span-2 space-y-1.5">
+                                <span className="text-sm line-clamp-2 block">{s.summary}</span>
+                                {s.tags && s.tags.length > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {s.tags.slice(0, 3).map((tag, i) => (
+                                      <span key={i} className="text-[9px] px-1.5 py-0.5 rounded-md bg-white/5 text-white/40 border border-white/5 font-mono uppercase">
+                                        {tag}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="text-right flex flex-col items-end">
+                                <span className={cn("text-[10px] font-mono font-bold px-1.5 py-0.5 rounded",
+                                  s.sentiment === 'positive' ? "bg-success/20 text-success" :
+                                    s.sentiment === 'negative' ? "bg-danger/20 text-danger" :
+                                      "bg-white/5 text-white/40"
+                                )}>
+                                  {s.sentiment === 'positive' ? '+AL' : s.sentiment === 'negative' ? '-AL' : 'NEU'}
                                 </span>
-                              ))}
+                              </div>
                             </div>
-                          )}
-                        </div>
-                        <div className="text-right flex flex-col items-end">
-                          <span className={cn("text-[10px] font-mono font-bold px-1.5 py-0.5 rounded",
-                            s.sentiment === 'positive' ? "bg-success/20 text-success" :
-                              s.sentiment === 'negative' ? "bg-danger/20 text-danger" :
-                                "bg-white/5 text-white/40"
-                          )}>
-                            {s.sentiment === 'positive' ? '+AL' : s.sentiment === 'negative' ? '-AL' : 'NEU'}
-                          </span>
-                          <span className="text-[9px] font-mono text-white/20 mt-1">{new Date(s.created_at).toLocaleTimeString()}</span>
+                          ))}
                         </div>
                       </div>
-                    ))
-                  )}
+                    ));
+                  })()}
                 </div>
               </div>
             </div>
