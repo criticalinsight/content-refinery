@@ -1,6 +1,6 @@
 # Content Refinery - Product Roadmap
 
-**Current Version**: 1.6 (Production)  
+**Current Version**: 1.7 (Production)  
 **Last Updated**: 2026-01-19
 
 ---
@@ -80,6 +80,16 @@
 
 ---
 
+## ✅ Phase 12: Performance & Security Hardening (Complete)
+*Deployed: 2026-01-19*
+
+- [x] **In-Memory Caching**: Implemented TTL-based caching for signals and narratives.
+- [x] **Request Rate Limiting**: Added security guards to prevent API abuse per IP.
+- [x] **Observability**: Structured `ErrorLogger` for internal engine auditing.
+- [x] **Throughput Optimization**: Increased batch processing size and refined AI extraction prompt.
+
+---
+
 ## 🚧 Phase 9: Collaboration & Multi-User (Next)
 *Target: Q1 2026*
 
@@ -128,6 +138,7 @@
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 1.7 | 2026-01-19 | Caching, Rate Limiting, Error Logging |
 | 1.6 | 2026-01-19 | Narrative Engine, Persistence Hardening |
 | 1.5 | 2026-01-19 | QR login, 2FA, custom domains |
 | 1.4 | 2026-01-19 | Telegram integration |

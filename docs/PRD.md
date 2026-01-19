@@ -1,7 +1,9 @@
-# Product Requirements Document
+# Product Requirements Document (PRD)
 
 ## 1. Overview
 
-## 2. Technical Architecture
+## 2. Objectives
 
-## 3. Roadmap
+## 3. Functional Requirements
+
+## 4. Technical Architecture
