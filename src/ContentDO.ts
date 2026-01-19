@@ -1971,14 +1971,43 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
                         }
 
                         this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                            crypto.randomUUID(), "DEBUG_DIGEST", `🚀 Sending PDF (${Math.round(buffer.byteLength / 1024)} KB) to Gemini 2.0 Flash...`, Date.now());
+                            crypto.randomUUID(), "DEBUG_DIGEST", `🚀 Processing PDF (${Math.round(buffer.byteLength / 1024)} KB) from ${item.source_name}...`, Date.now());
 
-                        let binary = '';
-                        const bytes = new Uint8Array(buffer);
-                        for (let i = 0; i < bytes.byteLength; i += 32768) {
-                            binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
+                        let markdown: string | null = null;
+                        try {
+                            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                                crypto.randomUUID(), "DEBUG_DIGEST", `📝 Attempting Cloudflare toMarkdown conversion...`, Date.now());
+                            
+                            const blob = new Blob([buffer], { type: 'application/pdf' });
+                            const mdResult = await (this.env.AI as any).toMarkdown(blob);
+                            if (mdResult && mdResult.text) {
+                                markdown = mdResult.text;
+                                this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                                    crypto.randomUUID(), "DEBUG_DIGEST", `✅ toMarkdown Success (${markdown.length} chars)`, Date.now());
+                            }
+                        } catch (e: any) {
+                            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                                crypto.randomUUID(), "DEBUG_DIGEST", `⚠️ toMarkdown Fallback: ${e.message}`, Date.now());
                         }
-                        const b64 = btoa(binary);
+
+                        let parts: any[] = [];
+                        if (markdown) {
+                            parts = [
+                                { text: `Following is a complete newspaper (Financial Times or Wall Street Journal) converted to Markdown format:\n\n${markdown}\n\nExtract EVERY DISTINCT investment signal, article, or market insight as a SEPARATE entry in your JSON array. I expect at least 15-30 signals from a full newspaper. Do NOT summarize the entire paper into one signal - each article, headline, or insight should be its own signal object. Be exhaustive.` }
+                            ];
+                        } else {
+                            // Multimodal fallback
+                            let binary = '';
+                            const bytes = new Uint8Array(buffer);
+                            for (let i = 0; i < bytes.byteLength; i += 32768) {
+                                binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
+                            }
+                            const b64 = btoa(binary);
+                            parts = [
+                                { inlineData: { mimeType: "application/pdf", data: b64 } },
+                                { text: "This is a complete newspaper (Financial Times or Wall Street Journal). Extract EVERY DISTINCT investment signal, article, or market insight as a SEPARATE entry in your JSON array. I expect at least 15-30 signals from a full newspaper. Do NOT summarize the entire paper into one signal - each article, headline, or insight should be its own signal object. Be exhaustive." }
+                            ];
+                        }
 
                         const response = await fetch(
                             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${this.env.GEMINI_API_KEY}`,
@@ -1988,10 +2017,7 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
                                 body: JSON.stringify({
                                     contents: [{
                                         role: 'user',
-                                        parts: [
-                                            { inlineData: { mimeType: "application/pdf", data: b64 } },
-                                            { text: "This is a complete newspaper (Financial Times or Wall Street Journal). Extract EVERY DISTINCT investment signal, article, or market insight as a SEPARATE entry in your JSON array. I expect at least 15-30 signals from a full newspaper. Do NOT summarize the entire paper into one signal - each article, headline, or insight should be its own signal object. Be exhaustive." }
-                                        ]
+                                        parts
                                     }],
                                     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
                                     generationConfig: { temperature: 0.2, response_mime_type: "application/json" }
