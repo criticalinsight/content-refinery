@@ -147,8 +147,8 @@ export class TelegramManager {
                 });
             }
 
-            // Handle Media (Voice/Audio)
-            else if (message.media && (message.media instanceof Api.MessageMediaDocument)) {
+            // Handle Media (Voice/Audio/Photo)
+            else if (message.media && (message.media instanceof Api.MessageMediaDocument || message.media instanceof Api.MessageMediaPhoto)) {
                 // Pass the whole message for downloading later
                 await onMessage({
                     chatId: message.peerId?.toString(),
