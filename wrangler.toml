@@ -8,6 +8,9 @@ routes = [
     { pattern = "api.moecapital.com/*", zone_name = "moecapital.com" }
 ]
 
+[triggers]
+crons = ["0 5 * * *", "0 17 * * *"]
+
 [observability]
 enabled = true
 

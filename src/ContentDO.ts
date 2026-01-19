@@ -264,6 +264,12 @@ export class ContentDO extends DurableObject<Env> {
             return this.handleSignalSearch(request, url);
         }
 
+        if (url.pathname === '/internal/scheduled') {
+            const { cron } = await request.json() as any;
+            await this.handleScheduled(cron);
+            return Response.json({ success: true });
+        }
+
         return new Response('Not found', { status: 404 });
     }
 
@@ -998,6 +1004,12 @@ export class ContentDO extends DurableObject<Env> {
             for (const intel of analysis) {
                 if (intel.relevance_score > 40) {
                     await this.notifySignal(intel, sourceId, items[0].source_name);
+
+                    // Phase 16: Signal Mirroring (Score > 80)
+                    if (intel.relevance_score > 80) {
+                        await this.mirrorSignal(intel, sourceId, items[0].source_name);
+                    }
+
                     if (Array.isArray(intel.source_ids)) {
                         for (const sid of intel.source_ids) {
                             this.ctx.storage.sql.exec('UPDATE content_items SET is_signal = 1, tags = ? WHERE id = ?', JSON.stringify(intel.tags || []), sid);
@@ -1389,6 +1401,86 @@ export class ContentDO extends DurableObject<Env> {
             } catch (e) {
                 await this.logger.log('NarrativeEngine', e, { clusterSize: cluster.length });
             }
+        }
+    /**
+     * Phase 16: Internal Scheduled Handler
+     */
+    private async handleScheduled(cron: string) {
+        console.log(`[ContentRefinery] Scheduled trigger: ${cron}`);
+        // Both 5AM and 5PM crons trigger the briefing
+        await this.generateDailyBriefing();
+    }
+
+    /**
+     * Phase 16: Daily Briefing Agent
+     * Generates a market digest and sends it to the Alpha channel.
+     */
+    private async generateDailyBriefing() {
+        const ALPHA_CHANNEL = "-1003589267081";
+
+        try {
+            // 1. Get top narratives from last 12 hours
+            const narratives = this.ctx.storage.sql.exec(`
+                SELECT title, summary, sentiment 
+                FROM narratives 
+                WHERE created_at > ? 
+                ORDER BY created_at DESC LIMIT 5
+            `, Date.now() - 12 * 60 * 60 * 1000).toArray() as any[];
+
+            if (narratives.length === 0) {
+                console.log("[ContentRefinery] No narratives found for briefing.");
+                return;
+            }
+
+            // 2. Format message
+            let message = `🔭 <b>Daily Alpha Digest</b>\n`;
+            message += `<i>Refining the world's noise into market intelligence.</i>\n\n`;
+
+            message += `🔥 <b>Top 5 Narratives:</b>\n`;
+            narratives.forEach((n, i) => {
+                const icon = n.sentiment === 'positive' ? '📈' : n.sentiment === 'negative' ? '📉' : '↔️';
+                message += `${i + 1}. ${icon} <b>${n.title}</b>\n   <i>${n.summary}</i>\n\n`;
+            });
+
+            message += `💡 <i>Tip: Use /status in DM to check system health.</i>`;
+
+            // 3. Send to Telegram
+            const tg = await this.ensureTelegram();
+            await tg.sendMessage(ALPHA_CHANNEL, message);
+            console.log(`[ContentRefinery] Daily briefing sent to ${ALPHA_CHANNEL}`);
+
+        } catch (e) {
+            await this.logger.log('BriefingAgent', e);
+        }
+    }
+
+    /**
+     * Phase 16: Signal Mirroring
+     * Forwards high-alpha signals to the Alpha channel.
+     */
+    private async mirrorSignal(intel: any, sourceId: string, sourceName: string) {
+        const ALPHA_CHANNEL = "-1003589267081";
+
+        try {
+            const sentimentIcon = intel.sentiment === 'positive' ? '🟢' : intel.sentiment === 'negative' ? '🔴' : '⚪️';
+            const urgencyIcon = intel.is_urgent ? '🚨 ' : '📡 ';
+
+            let message = `${urgencyIcon}<b>HIGH ALPHA SIGNAL</b>\n`;
+            message += `━━━━━━━━━━━━━━━\n`;
+            message += `<b>Source:</b> ${sourceName}\n`;
+            message += `<b>Sentiment:</b> ${sentimentIcon} ${intel.sentiment?.toUpperCase()}\n`;
+            message += `<b>Relevance:</b> ⚡️ ${intel.relevance_score}%\n\n`;
+            message += `📝 <b>Summary:</b> ${intel.summary}\n\n`;
+
+            if (intel.tickers?.length > 0) {
+                message += `🏷 <b>Tickers:</b> ${intel.tickers.map((t: string) => `$${t}`).join(' ')}\n`;
+            }
+
+            const tg = await this.ensureTelegram();
+            await tg.sendMessage(ALPHA_CHANNEL, message);
+            console.log(`[ContentRefinery] Signal mirrored to ${ALPHA_CHANNEL}`);
+        } catch (e) {
+            await this.logger.log('SignalMirror', e);
         }
     }
 }
