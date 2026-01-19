@@ -1,6 +1,36 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { ContentDO } from './ContentDO';
 
+// Mock cloudflare:workers to avoid DurableObjectBase validation issues in unit tests
+vi.mock('cloudflare:workers', () => {
+    return {
+        DurableObject: class {
+            ctx: any;
+            env: any;
+            constructor(ctx: any, env: any) {
+                this.ctx = ctx;
+                this.env = env;
+            }
+        }
+    };
+});
+
+// Mock TelegramManager and external libraries
+vi.mock('./telegram', () => {
+    return {
+        TelegramManager: vi.fn().mockImplementation(() => ({
+            connect: vi.fn().mockResolvedValue('test-session'),
+            isLoggedIn: vi.fn().mockResolvedValue(true),
+            listen: vi.fn(),
+            getClient: vi.fn().mockReturnValue({ connected: true })
+        }))
+    };
+});
+
+vi.mock('./utils/rss', () => ({
+    fetchAndParseRSS: vi.fn()
+}));
+
 // Mock types and dependencies
 const mockEnv = {
     GEMINI_API_KEY: 'test-key',
