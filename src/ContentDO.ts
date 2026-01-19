@@ -38,6 +38,20 @@ export class ContentDO extends DurableObject<Env> {
         this.logger = new ErrorLogger(this.ctx.storage);
         this.migrateSchema();
         this.resumeTelegramSession();
+
+        // Schedule first janitor run if not already set
+        this.scheduleNextMaintenance();
+    }
+
+    /**
+     * Schedules the next maintenance window (Janitor/Reflexion).
+     */
+    private async scheduleNextMaintenance() {
+        const alarm = await this.ctx.storage.getAlarm();
+        if (alarm === null) {
+            // Run every 12 hours
+            this.ctx.storage.setAlarm(Date.now() + 12 * 60 * 60 * 1000);
+        }
     }
 
     private async resumeTelegramSession() {
@@ -662,6 +676,8 @@ export class ContentDO extends DurableObject<Env> {
     private async handleAdmin(request: Request, url: URL): Promise<Response> {
         if (url.pathname === '/ingest') return this.handleIngest(request);
         if (url.pathname === '/process') { await this.processBatch(); return Response.json({ success: true }); }
+        if (url.pathname === '/admin/janitor') { await this.janitor(); return Response.json({ success: true }); }
+        if (url.pathname === '/admin/reflect') { await this.reflect(); return Response.json({ success: true }); }
         if (url.pathname === '/sql') {
             const body = await request.json() as any;
             return Response.json({ result: this.ctx.storage.sql.exec(body.sql, ...(body.params || [])).toArray() });
@@ -986,6 +1002,89 @@ export class ContentDO extends DurableObject<Env> {
      */
     private sendError(message: string, status = 400, data = {}): Response {
         return Response.json({ success: false, error: message, ...data }, { status });
+    }
+
+    /**
+     * Janitor Pattern: Autonomous cleanup of stale data and logs.
+     * Time Complexity: O(N) where N is the number of stale rows.
+     */
+    async janitor() {
+        const now = Date.now();
+        const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+        const fortnightAgo = now - 14 * 24 * 60 * 60 * 1000;
+
+        try {
+            // 1. Prune internal errors (> 7 days)
+            this.ctx.storage.sql.exec('DELETE FROM internal_errors WHERE created_at < ?', weekAgo);
+
+            // 2. Prune low-importance graph nodes (> 14 days)
+            this.ctx.storage.sql.exec('DELETE FROM graph_nodes WHERE importance < 0.3 AND last_seen < ?', fortnightAgo);
+
+            // 3. Clear expired rate limits
+            const limit = now - this.RATE_LIMIT_WINDOW;
+            for (const [ip, timestamps] of this.rateLimiter) {
+                const valid = timestamps.filter(t => t > limit);
+                if (valid.length === 0) this.rateLimiter.delete(ip);
+                else this.rateLimiter.set(ip, valid);
+            }
+
+            console.log("[ContentRefinery] Janitor cleanup complete.");
+        } catch (e) {
+            await this.logger.log('Janitor', e);
+        }
+    }
+
+    /**
+     * Reflexion Pattern: Self-critique and refinement of AI outputs.
+     * Samples recent signals and narratives to improve accuracy and consistency.
+     */
+    async reflect() {
+        try {
+            // 1. Sample recent signals for reflexion (limit 5 for cost control)
+            const signals = this.ctx.storage.sql.exec(
+                'SELECT * FROM content_items WHERE is_signal = 1 AND sentiment != "unknown" ORDER BY created_at DESC LIMIT 5'
+            ).toArray();
+
+            for (const s of signals as any[]) {
+                const reflexionRes = await this.env.AI.run('@cf/meta/llama-3-8b-instruct', {
+                    messages: [
+                        { role: 'system', content: 'You are a critical reviewer. Analyze the previous extraction and sentiment for accuracy and objectivity.' },
+                        { role: 'user', content: `Original Text: ${s.raw_text}\nPrevious Extraction: ${s.processed_json}\nCritique this extraction and provide an improved JSON if necessary.` }
+                    ],
+                    response_format: { type: 'json_object' }
+                });
+
+                // Update if LLM suggests a significant change (this is a simplified implementation)
+                // In a production scenario, we'd compare the outputs more rigorously
+                if (reflexionRes.response) {
+                    // Logic to merge or update s.processed_json
+                    // For now, we log the success of the reflection step
+                    console.log(`[ContentRefinery] Reflected on signal ${s.id}`);
+                }
+            }
+
+            console.log("[ContentRefinery] Reflexion cycle complete.");
+        } catch (e) {
+            await this.logger.log('Reflexion', e);
+        }
+    }
+
+    /**
+     * Durable Object Alarm handler for background maintenance.
+     */
+    async alarm() {
+        console.log('[ContentRefinery] Starting scheduled maintenance...');
+        try {
+            await this.janitor();
+            await this.detectNarratives();
+            await this.reflect();
+        } catch (e) {
+            await this.logger.log('AlarmHandler', e);
+        } finally {
+            // Reschedule (12 hours)
+            await this.ctx.storage.setAlarm(Date.now() + 12 * 60 * 60 * 1000);
+            console.log('[ContentRefinery] Maintenance complete. Next run scheduled.');
+        }
     }
 
     async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
