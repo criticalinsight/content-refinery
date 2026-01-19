@@ -533,7 +533,7 @@ export class ContentDO extends DurableObject<Env> {
                 }
             }
 
-            if (ingestData?.text) {
+            if (ingestData && ingestData.text) {
                 await this.handleIngestInternal(ingestData);
                 return Response.json({ success: true });
             }
