@@ -1316,6 +1316,7 @@ const TelegramView: React.FC = () => {
               <span className="text-[10px] text-zinc-500">Last: {new Date(chat.last_ingested_at).toLocaleTimeString()}</span>
             </div>
           </div>
+          <ChevronRight className="w-5 h-5 text-zinc-600 group-hover:text-accent transition-colors" />
         </div>
       ))}
       {chats.length === 0 && <div className="col-span-full text-center text-zinc-500 py-10">No chats discovered yet. Send a message to the bot!</div>}
