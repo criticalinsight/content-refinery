@@ -731,6 +731,13 @@ export class ContentDO extends DurableObject<Env> {
     async alarm() {
         await this.pollRSSFeeds();
         await this.processBatch();
+
+        // Narrative Detection: Run every 60 minutes
+        const lastRun = await this.ctx.storage.get<number>('last_narrative_run') || 0;
+        if (Date.now() - lastRun > 60 * 60 * 1000) {
+            await this.detectNarratives();
+            await this.ctx.storage.put('last_narrative_run', Date.now());
+        }
     }
 
     private async pollRSSFeeds() {
@@ -984,5 +991,91 @@ export class ContentDO extends DurableObject<Env> {
 
     async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
         ws.close(code, reason);
+    }
+
+    private async detectNarratives() {
+        console.log('[ContentRefinery] Detecting Market Narratives...');
+
+        // 1. Get signals from the last 12 hours
+        const signals = this.ctx.storage.sql.exec(`
+            SELECT id, source_name, raw_text, processed_json, created_at 
+            FROM content_items 
+            WHERE is_signal = 1 AND created_at > ?
+        `, Date.now() - 12 * 60 * 60 * 1000).toArray() as any[];
+
+        if (signals.length < 3) return;
+
+        // 2. Identify clusters based on shared entities
+        const clusters: any[][] = [];
+        const processedIds = new Set<string>();
+
+        for (const s of signals) {
+            if (processedIds.has(s.id)) continue;
+
+            const sIntel = JSON.parse(s.processed_json).analysis.find((a: any) => a.source_ids?.includes(s.id));
+            if (!sIntel || !sIntel.triples) continue;
+
+            const sEntities = new Set(sIntel.triples.flatMap((t: any) => [t.subject, t.object]));
+            const cluster = [s];
+            processedIds.add(s.id);
+
+            for (const other of signals) {
+                if (processedIds.has(other.id)) continue;
+                const oIntel = JSON.parse(other.processed_json).analysis.find((a: any) => a.source_ids?.includes(other.id));
+                if (!oIntel || !oIntel.triples) continue;
+
+                const oEntities = oIntel.triples.flatMap((t: any) => [t.subject, t.object]);
+                if (oEntities.some((e: string) => sEntities.has(e))) {
+                    cluster.push(other);
+                    processedIds.add(other.id);
+                }
+            }
+
+            if (cluster.length >= 2) {
+                clusters.push(cluster);
+            }
+        }
+
+        // 3. For each cluster, synthesize a narrative
+        for (const cluster of clusters) {
+            const clusterTexts = cluster.map(c => `[${c.source_name}]: ${c.raw_text}`).join('\n\n');
+            const synthesisPrompt = `You are a Senior Macro Analyst. Synthesize the following signals into a cohesive market narrative.
+            Signals:
+            ${clusterTexts}
+            
+            Output valid JSON:
+            {
+                "title": "Short descriptive title",
+                "summary": "Cohesive summary of the narrative development",
+                "sentiment": "positive" | "negative" | "neutral"
+            }`;
+
+            try {
+                const response = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent?key=${this.env.GEMINI_API_KEY}`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ role: 'user', parts: [{ text: synthesisPrompt }] }],
+                            generationConfig: { temperature: 0.3, response_mime_type: "application/json" }
+                        })
+                    }
+                );
+
+                const res = await response.json() as any;
+                const narrative = JSON.parse(res.candidates?.[0]?.content?.parts?.[0]?.text || '{}');
+
+                if (narrative.title && narrative.summary) {
+                    const id = crypto.randomUUID();
+                    this.ctx.storage.sql.exec(
+                        'INSERT INTO narratives (id, title, summary, sentiment, signals, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+                        id, narrative.title, narrative.summary, narrative.sentiment, JSON.stringify(cluster.map(c => c.id)), Date.now()
+                    );
+                }
+            } catch (e) {
+                console.error('[ContentRefinery] Narrative synthesis failed:', e);
+            }
+        }
     }
 }
