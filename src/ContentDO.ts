@@ -844,7 +844,24 @@ export class ContentDO extends DurableObject<Env> {
 
     private async handleIngestInternal(body: any): Promise<string> {
         const id = crypto.randomUUID();
-        const text = body.text || '';
+        let text = body.text || '';
+
+        // Phase 16: Voice-to-Alpha
+        if (body.media) {
+            try {
+                const tg = await this.ensureTelegram();
+                const buffer = await tg.downloadMedia(body.media);
+                if (buffer) {
+                    text = await this.transcribeAudio(new Uint8Array(buffer));
+                    console.log(`[ContentRefinery] Voice transcribed: "${text.substring(0, 100)}..."`);
+                }
+            } catch (e) {
+                console.error("[ContentRefinery] Voice transcription failed:", e);
+                // We'll continue with empty text or just fail this item
+            }
+        }
+
+        if (!text) return "no_content";
 
         // Phase 16: Slash Command Router
         if (text.startsWith('/')) {
@@ -1152,6 +1169,22 @@ export class ContentDO extends DurableObject<Env> {
         );
         const result = await response.json() as any;
         return result.embedding.values;
+    }
+
+    /**
+     * Phase 16: Voice Transcription
+     * Converts audio buffers to text using Cloudflare Workers AI.
+     */
+    private async transcribeAudio(buffer: Uint8Array): Promise<string> {
+        try {
+            const response = await this.env.AI.run("@cf/openai/whisper", {
+                audio: [...buffer]
+            });
+            return response.text || "";
+        } catch (e) {
+            console.error("[ContentRefinery] Whisper transcription error:", e);
+            throw e;
+        }
     }
 
     private async encryptSignal(intel: any): Promise<string> {

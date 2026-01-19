@@ -136,15 +136,46 @@ export class TelegramManager {
 
         this.client?.addEventHandler(async (event: any) => {
             const message = event.message;
-            if (message && message.message) {
+            if (!message) return;
+
+            // Handle Text
+            if (message.message) {
                 await onMessage({
                     chatId: message.peerId?.toString(),
                     title: "Telegram Live",
                     text: message.message
                 });
             }
+
+            // Handle Media (Voice/Audio)
+            else if (message.media && (message.media instanceof Api.MessageMediaDocument)) {
+                // Pass the whole message for downloading later
+                await onMessage({
+                    chatId: message.peerId?.toString(),
+                    title: "Telegram Live",
+                    media: message
+                });
+            }
         }, new NewMessage({}));
         this.isListening = true;
+    }
+
+    /**
+     * Downloads media from a message.
+     */
+    async downloadMedia(message: Api.Message): Promise<Buffer | null> {
+        await this.connect();
+        if (!this.client || !message.media) return null;
+
+        try {
+            const buffer = await this.client.downloadMedia(message.media, {
+                workers: 1
+            });
+            return buffer as Buffer;
+        } catch (e) {
+            console.error("[TelegramManager] Media download failed:", e);
+            return null;
+        }
     }
 
     /**
