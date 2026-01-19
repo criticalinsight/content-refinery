@@ -201,4 +201,13 @@ export class TelegramManager {
             throw e;
         }
     }
+
+    /**
+     * Sends a message to a specific peer.
+     */
+    async sendMessage(chatId: string, text: string) {
+        await this.connect();
+        if (!this.client) return;
+        await this.client.sendMessage(chatId, { message: text, parseMode: "html" });
+    }
 }
