@@ -24,5 +24,18 @@
 
 ---
 
-## 🔮 Future Phases
-*To be defined after Telegram integration is complete.*
+## 🧠 Phase 17: Knowledge & Visualization (Current)
+*Objective: Turn raw signals into a structured Knowledge Graph and visualize it.*
+
+1. [x] **Relational Knowledge Graph**:
+    - Extract Subject-Predicate-Object triples (`Bitcoin -> price -> tumbles`).
+    - Stored in SQLite for persistent graph queries.
+2. [x] **Signal Dashboard**:
+    - React-based dashboard for real-time signal monitoring.
+    - 2D Force-Directed Graph visualization of entities.
+3. [x] **Backfill & Historical Processing**:
+    - Ability to ingest historical Telegram messages for context.
+    - `/admin/backfill` endpoint implemented.
+
+## 🔮 Phase 18: Predictive Alpha (Next)
+*Objective: Scoring and ranking assets based on graph centrality and sentiment.*
