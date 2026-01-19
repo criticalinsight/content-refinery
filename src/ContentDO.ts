@@ -40,7 +40,10 @@ export class ContentDO extends DurableObject<Env> {
         if (this.telegram && this.telegram.getClient()?.connected) return this.telegram;
 
         const sessionStr = await this.ctx.storage.get<string>('tg_session') || "";
-        this.telegram = new TelegramManager(this.env, sessionStr);
+        this.telegram = new TelegramManager(this.env, sessionStr, async (newSession) => {
+            await this.ctx.storage.put('tg_session', newSession);
+            console.log("[ContentRefinery] Telegram session updated and persisted.");
+        });
         await this.telegram.connect();
 
         // Auto-start listener if logged in
@@ -697,14 +700,18 @@ export class ContentDO extends DurableObject<Env> {
         return Response.json({ success: true, id });
     }
 
+    private async generateContentHash(text: string): Promise<string> {
+        const msgBuffer = new TextEncoder().encode(text);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
     private async handleIngestInternal(body: any): Promise<string> {
         const id = crypto.randomUUID();
 
         // Deduplication: Calculate SHA-256 hash of content
-        const msgBuffer = new TextEncoder().encode(body.text);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const contentHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        const contentHash = await this.generateContentHash(body.text);
 
         // Check if duplicate exists
         const existing = this.ctx.storage.sql.exec('SELECT id FROM content_items WHERE content_hash = ?', contentHash).toArray();
@@ -729,14 +736,27 @@ export class ContentDO extends DurableObject<Env> {
     }
 
     async alarm() {
-        await this.pollRSSFeeds();
-        await this.processBatch();
+        try {
+            await this.pollRSSFeeds();
+        } catch (e) {
+            console.error("[ContentRefinery] RSS Polling failed:", e);
+        }
 
-        // Narrative Detection: Run every 60 minutes
-        const lastRun = await this.ctx.storage.get<number>('last_narrative_run') || 0;
-        if (Date.now() - lastRun > 60 * 60 * 1000) {
-            await this.detectNarratives();
-            await this.ctx.storage.put('last_narrative_run', Date.now());
+        try {
+            await this.processBatch();
+        } catch (e) {
+            console.error("[ContentRefinery] Batch processing failed:", e);
+        }
+
+        try {
+            // Narrative Detection: Run every 60 minutes
+            const lastRun = await this.ctx.storage.get<number>('last_narrative_run') || 0;
+            if (Date.now() - lastRun > 60 * 60 * 1000) {
+                await this.detectNarratives();
+                await this.ctx.storage.put('last_narrative_run', Date.now());
+            }
+        } catch (e) {
+            console.error("[ContentRefinery] Narrative detection failed:", e);
         }
     }
 
@@ -751,18 +771,8 @@ export class ContentDO extends DurableObject<Env> {
             if (data && data.items) {
                 let newCount = 0;
                 for (const item of data.items) {
-                    // Check logic similar to handleIngestInternal but slightly adapted
-                    const contentValues = {
-                        chatId: feed.id,
-                        title: feed.name,
-                        text: `${item.title}\n\n${item.description}\n\n${item.link}`
-                    };
-
-                    // Deduplication: Calculate SHA-256 hash
-                    const msgBuffer = new TextEncoder().encode(contentValues.text);
-                    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-                    const hashArray = Array.from(new Uint8Array(hashBuffer));
-                    const contentHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                    const text = `${item.title}\n\n${item.description}\n\n${item.link}`;
+                    const contentHash = await this.generateContentHash(text);
 
                     const existing = this.ctx.storage.sql.exec('SELECT id FROM content_items WHERE content_hash = ?', contentHash).toArray();
 
