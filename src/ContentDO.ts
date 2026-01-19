@@ -262,7 +262,7 @@ export class ContentDO extends DurableObject<Env> {
             return this.handleTelegramRoutes(request, url);
         }
 
-        if (url.pathname === '/ingest' || url.pathname === '/process' || url.pathname === '/sql') {
+        if (url.pathname === '/ingest' || url.pathname === '/process' || url.pathname === '/sql' || url.pathname === '/admin/backfill') {
             return this.handleAdmin(request, url);
         }
 
@@ -844,7 +844,55 @@ export class ContentDO extends DurableObject<Env> {
      * Handles administrative and direct ingestion endpoints.
      */
     private async handleAdmin(request: Request, url: URL): Promise<Response> {
-        if (url.pathname === '/ingest') return this.handleIngest(request);
+        if (url.pathname === '/admin/backfill' && request.method === 'POST') {
+            const { limit = 100, chatId } = await request.json() as any;
+            const tg = await this.ensureTelegram();
+
+            let count = 0;
+            if (chatId) {
+                const messages = await tg.getMessages(chatId, limit);
+                for (const msg of messages) {
+                    if (msg.message || msg.media) {
+                        try {
+                            await this.handleIngestInternal({
+                                chatId: chatId,
+                                title: "Backfill Import",
+                                text: msg.message,
+                                media: msg.media ? { media: msg.media } : undefined
+                            });
+                            count++;
+                        } catch (e) {
+                            console.error(`Backfill error for msg ${msg.id}:`, e);
+                        }
+                    }
+                }
+            } else {
+                const dialogs = await tg.getDialogs(10);
+                for (const d of dialogs) {
+                    // Only backfill channels/groups, skip private chats if needed, or just do all
+                    if (d.isChannel || d.isGroup) {
+                        const messages = await tg.getMessages(d.entity, Math.min(limit, 50)); // limit per chat
+                        for (const msg of messages) {
+                            if (msg.message || msg.media) {
+                                try {
+                                    await this.handleIngestInternal({
+                                        chatId: d.id?.toString(),
+                                        title: d.title || "Backfill Import",
+                                        text: msg.message,
+                                        media: msg.media ? { media: msg.media } : undefined
+                                    });
+                                    count++;
+                                } catch (e) { console.error(e); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return Response.json({ success: true, processed: count });
+        }
+
+        if (url.pathname === '/ingest' && request.method === 'POST') return this.handleIngest(request);
         if (url.pathname === '/process') { await this.processBatch(); return Response.json({ success: true }); }
         if (url.pathname === '/admin/janitor') { await this.janitor(); return Response.json({ success: true }); }
         if (url.pathname === '/admin/reflect') { await this.reflect(); return Response.json({ success: true }); }
