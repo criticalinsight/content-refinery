@@ -493,17 +493,65 @@ export class ContentDO extends DurableObject<Env> {
      * Handles webhook-based content ingestion from Discord, Slack, etc.
      * Time Complexity: O(1) for ingestion.
      */
-    private async handleWebhook(request: Request, url: URL): Promise<Response> {
-        const type = url.pathname.split('/')[2] as any;
-        if (!['generic', 'discord', 'slack'].includes(type)) return this.sendError('Unsupported webhook type', 400);
+    // This handleWebhook is now called from the fetch method directly, not via url.pathname.startsWith('/webhooks/')
+    // The previous handleWebhook logic is now integrated into the fetch method's conditional for '/webhooks/'
+    // This method is now the actual handler for specific webhook types.
+    async handleWebhook(request: Request, type: 'generic' | 'discord' | 'slack'): Promise<Response> {
+        if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
-        const body = await request.json() as any;
-        await this.handleIngestInternal({
-            text: body.content || body.text || body.message,
-            chatId: body.channel_id || body.source_id || 'webhook',
-            title: body.channel_name || body.source_name || `${type} Webhook`
-        });
-        return Response.json({ success: true });
+        try {
+            const body = await request.json() as any;
+            let ingestData: { chatId: string, title: string, text: string } | null = null;
+
+            if (type === 'generic') {
+                if (!body.text && !body.content) return Response.json({ error: 'Missing text or content' }, { status: 400 });
+                ingestData = {
+                    chatId: body.source_id || 'webhook-generic',
+                    title: body.source_name || 'Generic Webhook',
+                    text: body.text || body.content
+                };
+            }
+
+            if (type === 'discord') {
+                // Handle Discord webhook payload
+                if (!body.content && (!body.embeds || body.embeds.length === 0)) {
+                    return Response.json({ status: 'ignored', reason: 'empty' });
+                }
+                const text = [body.content, ...(body.embeds?.map((e: any) => `${e.title || ''}\n${e.description || ''}`) || [])].join('\n').trim();
+                ingestData = {
+                    chatId: body.guild_id || body.channel_id || 'webhook-discord',
+                    title: body.username || 'Discord Webhook',
+                    text
+                };
+            }
+
+            if (type === 'slack') {
+                // Slack Challenge
+                if (body.type === 'url_verification') {
+                    return Response.json({ challenge: body.challenge });
+                }
+
+                // Slack Event
+                if (body.event && body.event.type === 'message' && !body.event.bot_id) {
+                    ingestData = {
+                        chatId: body.team_id || 'webhook-slack',
+                        title: 'Slack Webhook',
+                        text: body.event.text
+                    };
+                } else {
+                    return Response.json({ status: 'ignored', reason: 'unsupported_event' });
+                }
+            }
+
+            if (ingestData) {
+                await this.handleIngestInternal(ingestData);
+                return Response.json({ success: true });
+            }
+
+            return Response.json({ error: 'Could not process payload' }, { status: 400 });
+        } catch (e) {
+            return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+        }
     }
 
     /**
@@ -607,63 +655,41 @@ export class ContentDO extends DurableObject<Env> {
         return new Response('Method not allowed', { status: 405 });
     }
 
-    // Webhook Handlers
-    async handleWebhook(request: Request, type: 'generic' | 'discord' | 'slack'): Promise<Response> {
-        if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
+    /**
+     * Handles health check and system statistics.
+     * Time Complexity: O(1) (SQL COUNT on small/indexed tables).
+     */
+    private handleHealthStats(request: Request, url: URL): Response {
+        if (url.pathname === '/health') return Response.json({ status: 'healthy', timestamp: new Date().toISOString() });
 
-        try {
+        const total = (this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items').one() as any)?.cnt || 0;
+        const signals = (this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items WHERE is_signal = 1').one() as any)?.cnt || 0;
+        return Response.json({ totalItems: total, signals, timestamp: new Date().toISOString() });
+    }
+
+    /**
+     * Handles administrative and direct ingestion endpoints.
+     */
+    private async handleAdmin(request: Request, url: URL): Promise<Response> {
+        if (url.pathname === '/ingest') return this.handleIngest(request);
+        if (url.pathname === '/process') { await this.processBatch(); return Response.json({ success: true }); }
+        if (url.pathname === '/sql') {
             const body = await request.json() as any;
-            let ingestData: { chatId: string, title: string, text: string } | null = null;
-
-            if (type === 'generic') {
-                if (!body.text && !body.content) return Response.json({ error: 'Missing text or content' }, { status: 400 });
-                ingestData = {
-                    chatId: body.source_id || 'webhook-generic',
-                    title: body.source_name || 'Generic Webhook',
-                    text: body.text || body.content
-                };
-            }
-
-            if (type === 'discord') {
-                // Handle Discord webhook payload
-                if (!body.content && (!body.embeds || body.embeds.length === 0)) {
-                    return Response.json({ status: 'ignored', reason: 'empty' });
-                }
-                const text = [body.content, ...(body.embeds?.map((e: any) => `${e.title || ''}\n${e.description || ''}`) || [])].join('\n').trim();
-                ingestData = {
-                    chatId: body.guild_id || body.channel_id || 'webhook-discord',
-                    title: body.username || 'Discord Webhook',
-                    text
-                };
-            }
-
-            if (type === 'slack') {
-                // Slack Challenge
-                if (body.type === 'url_verification') {
-                    return Response.json({ challenge: body.challenge });
-                }
-
-                // Slack Event
-                if (body.event && body.event.type === 'message' && !body.event.bot_id) {
-                    ingestData = {
-                        chatId: body.team_id || 'webhook-slack',
-                        title: 'Slack Webhook',
-                        text: body.event.text
-                    };
-                } else {
-                    return Response.json({ status: 'ignored', reason: 'unsupported_event' });
-                }
-            }
-
-            if (ingestData) {
-                await this.handleIngestInternal(ingestData);
-                return Response.json({ success: true });
-            }
-
-            return Response.json({ error: 'Could not process payload' }, { status: 400 });
-        } catch (e) {
-            return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+            return Response.json({ result: this.ctx.storage.sql.exec(body.sql, ...(body.params || [])).toArray() });
         }
+        return this.sendError('Admin endpoint not found', 404);
+    }
+
+    /**
+     * Handles WebSocket upgrades for real-time monitoring.
+     */
+    private async handleWebSocket(request: Request): Promise<Response> {
+        const upgradeHeader = request.headers.get('Upgrade');
+        if (!upgradeHeader || upgradeHeader !== 'websocket') return new Response('Expected Upgrade: websocket', { status: 426 });
+
+        const [client, server] = Object.values(new WebSocketPair());
+        this.ctx.acceptWebSocket(server);
+        return new Response(null, { status: 101, webSocket: client });
     }
 
     async handleIngest(request: Request): Promise<Response> {
