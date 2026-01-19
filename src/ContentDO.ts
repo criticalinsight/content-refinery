@@ -1370,6 +1370,11 @@ export class ContentDO extends DurableObject<Env> {
                 await this.ctx.storage.put('last_maintenance_run', now);
             }
 
+            // 4. Persistence: Telegram Session Heartbeat (Catch any updates)
+            if (this.telegram && this.telegram.getClient()?.connected) {
+                await this.telegram.saveSession().catch(() => { });
+            }
+
         } catch (e) {
             await this.logger.log('AlarmHeartbeat', e);
         } finally {
