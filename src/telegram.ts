@@ -6,9 +6,12 @@ export class TelegramManager {
     private client: TelegramClient | null = null;
     private session: StringSession;
     private phoneCodeHash: string = "";
+    private isListening: boolean = false;
+    private onSessionUpdate?: (session: string) => Promise<void>;
 
-    constructor(private env: any, sessionStr: string = "") {
+    constructor(private env: any, sessionStr: string = "", onSessionUpdate?: (session: string) => Promise<void>) {
         this.session = new StringSession(sessionStr);
+        this.onSessionUpdate = onSessionUpdate;
     }
 
     async init() {
@@ -35,7 +38,15 @@ export class TelegramManager {
         if (!this.client.connected) {
             await this.client.connect();
         }
-        return this.client.session.save() as unknown as string;
+        const session = this.client.session.save() as unknown as string;
+        await this.triggerSessionUpdate(session);
+        return session;
+    }
+
+    private async triggerSessionUpdate(session: string) {
+        if (this.onSessionUpdate) {
+            await this.onSessionUpdate(session);
+        }
     }
 
     // Step 1: Send verification code to phone
@@ -63,7 +74,9 @@ export class TelegramManager {
                     phoneCode: code,
                 })
             );
-            return this.client!.session.save() as unknown as string;
+            const session = this.client!.session.save() as unknown as string;
+            await this.triggerSessionUpdate(session);
+            return session;
         } catch (e: any) {
             if (e.errorMessage === "SESSION_PASSWORD_NEEDED") {
                 throw new Error("2FA_REQUIRED");
@@ -82,7 +95,9 @@ export class TelegramManager {
                 password: await this.computeSrp(result, password)
             })
         );
-        return this.client!.session.save() as unknown as string;
+        const session = this.client!.session.save() as unknown as string;
+        await this.triggerSessionUpdate(session);
+        return session;
     }
 
     private async computeSrp(passwordResult: Api.account.Password, password: string): Promise<Api.InputCheckPasswordSRP> {
@@ -102,6 +117,7 @@ export class TelegramManager {
     }
 
     async listen(onMessage: (msg: any) => Promise<void>) {
+        if (this.isListening) return;
         await this.connect();
 
         this.client?.addEventHandler(async (event: any) => {
@@ -114,6 +130,7 @@ export class TelegramManager {
                 });
             }
         }, new NewMessage({}));
+        this.isListening = true;
     }
 
     getClient() {
@@ -167,9 +184,11 @@ export class TelegramManager {
 
             if (result instanceof Api.auth.LoginTokenSuccess) {
                 // User approved! We're logged in
+                const session = this.client!.session.save() as unknown as string;
+                await this.triggerSessionUpdate(session);
                 return {
                     success: true,
-                    session: this.client!.session.save() as unknown as string
+                    session
                 };
             } else if (result instanceof Api.auth.LoginTokenMigrateTo) {
                 // Need to migrate to another DC - handle this case
