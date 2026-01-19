@@ -299,11 +299,34 @@ export class TelegramManager {
     }
 
     /**
+     * Resolves a peer by ID or name, ensuring it is cached.
+     */
+    async resolvePeer(id: string): Promise<any> {
+        await this.connect();
+        if (!this.client) return null;
+
+        try {
+            // First try direct numeric ID or cached string
+            return await this.client.getEntity(id);
+        } catch {
+            // If failed, fetch dialogs to populate cache
+            await this.client.getDialogs({ limit: 40 });
+            return await this.client.getEntity(id);
+        }
+    }
+
+    /**
      * Fetch messages from a specific peer with options.
      */
-    async getMessages(peer: any, options: any): Promise<Api.Message[]> {
+    async getMessages(peerArg: any, options: any): Promise<Api.Message[]> {
         await this.connect();
         if (!this.client) return [];
+
+        let peer = peerArg;
+        if (typeof peerArg === 'string') {
+            peer = await this.resolvePeer(peerArg);
+        }
+
         return await this.client.getMessages(peer, options);
     }
 
