@@ -282,7 +282,7 @@ export class ContentDO extends DurableObject<Env> {
             response = await this.handleTelegramAuth(request, url);
         } else if (url.pathname.startsWith('/telegram')) {
             response = await this.handleTelegramRoutes(request, url);
-        } else if (url.pathname === '/ingest' || url.pathname === '/process' || url.pathname === '/sql' || url.pathname === '/admin/backfill') {
+        } else if (url.pathname === '/ingest' || url.pathname === '/process' || url.pathname === '/sql' || url.pathname.startsWith('/admin')) {
             response = await this.handleAdmin(request, url);
         } else if (url.pathname === '/ws') {
             return this.handleWebSocket(request); // WS upgrade doesn't use standard CORS headers usually
