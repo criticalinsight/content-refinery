@@ -1221,28 +1221,88 @@ const App: React.FC = () => {
 
 const TelegramView: React.FC = () => {
   const [chats, setChats] = useState<{ id: string; name: string; type: string; last_ingested_at: number }[]>([]);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [msgLoading, setMsgLoading] = useState(false);
 
+  // Initial Chat Load
   useEffect(() => {
     const load = () => {
-      fetch(`${API_BASE}/telegram/chats`).then(r => r.json()).then(data => {
-        setChats(data.chats || []);
-        setLoading(false);
-      });
+      // Only auto-refresh list if we aren't viewing a chat to prevent UI jumping
+      if (!selectedChatId) {
+        fetch(`${API_BASE}/telegram/chats`).then(r => r.json()).then(data => {
+          setChats(data.chats || []);
+          setLoading(false);
+        });
+      }
     };
     load();
-    const interval = setInterval(load, 5000); // Polling for "real-time" updates
+    const interval = setInterval(load, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedChatId]);
 
-  if (loading) return <div className="text-center p-8 text-zinc-400">Loading Telegram Chats...</div>;
+  // Fetch Messages when chat selected
+  useEffect(() => {
+    if (selectedChatId) {
+      setMsgLoading(true);
+      fetch(`${API_BASE}/telegram/messages?chatId=${selectedChatId}`).then(r => r.json()).then(data => {
+        setMessages(data.messages || []);
+        setMsgLoading(false);
+      });
+    }
+  }, [selectedChatId]);
+
+  if (loading && !chats.length) return <div className="text-center p-8 text-zinc-400">Loading Telegram Chats...</div>;
+
+  // Detail View (Message History)
+  if (selectedChatId) {
+    const activeChat = chats.find(c => c.id === selectedChatId);
+    return (
+      <div className="flex flex-col h-[calc(100vh-140px)]">
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-4 pb-4 border-b border-zinc-800">
+          <button onClick={() => setSelectedChatId(null)} className="p-2 hover:bg-zinc-800 rounded-full transition-colors">
+            <ArrowLeft className="w-5 h-5 text-zinc-400" />
+          </button>
+          <div>
+            <h2 className="text-lg font-bold text-zinc-100">{activeChat?.name || 'Unknown Chat'}</h2>
+            <p className="text-xs text-zinc-500 uppercase tracking-wider">{activeChat?.type || 'telegram'}</p>
+          </div>
+        </div>
+
+        {/* Message List */}
+        <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+          {msgLoading ? (
+            <div className="text-center text-zinc-500 py-10">Loading history...</div>
+          ) : messages.length === 0 ? (
+            <div className="text-center text-zinc-500 py-10">No messages found.</div>
+          ) : (
+            messages.map(msg => (
+              <div key={msg.id} className="glass p-3 rounded-xl border border-white/5 bg-zinc-900/40">
+                <div className="flex justify-between items-start mb-1">
+                  <span className="text-[10px] text-accent font-mono">{new Date(msg.created_at).toLocaleString()}</span>
+                  {msg.is_signal === 1 && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1 rounded uppercase">Signal</span>}
+                </div>
+                <p className="text-sm text-zinc-300 whitespace-pre-wrap">{msg.raw_text}</p>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {chats.map(chat => (
-        <div key={chat.id} className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl flex items-center justify-between">
+        <div
+          key={chat.id}
+          onClick={() => setSelectedChatId(chat.id)}
+          className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl flex items-center justify-between cursor-pointer hover:border-accent/40 hover:bg-zinc-800/80 transition-all group"
+        >
           <div>
-            <h3 className="text-zinc-200 font-medium truncate max-w-[200px]">{chat.name}</h3>
+            <h3 className="text-zinc-200 font-medium truncate max-w-[200px] group-hover:text-accent transition-colors">{chat.name}</h3>
             <div className="flex items-center gap-2 mt-1">
               <span className="text-[10px] bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-400 uppercase">{chat.type}</span>
               <span className="text-[10px] text-zinc-500">Last: {new Date(chat.last_ingested_at).toLocaleTimeString()}</span>
