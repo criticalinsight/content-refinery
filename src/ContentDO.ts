@@ -780,7 +780,7 @@ export class ContentDO extends DurableObject<Env> {
                         const id = crypto.randomUUID();
                         this.ctx.storage.sql.exec(
                             'INSERT INTO content_items (id, source_id, source_name, raw_text, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-                            id, feed.id, feed.name, contentValues.text, contentHash, Date.now()
+                            id, feed.id, feed.name, text, contentHash, Date.now()
                         );
                         newCount++;
                     }
