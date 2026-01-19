@@ -1285,17 +1285,38 @@ const TelegramView: React.FC = () => {
             <div className="text-center text-zinc-500 py-10">Loading history...</div>
           ) : messages.length === 0 ? (
             <div className="text-center text-zinc-500 py-10">No messages found.</div>
-          ) : (
-            messages.map(msg => (
-              <div key={msg.id} className="glass p-3 rounded-xl border border-white/5 bg-zinc-900/40">
-                <div className="flex justify-between items-start mb-1">
-                  <span className="text-[10px] text-accent font-mono">{new Date(msg.created_at).toLocaleString()}</span>
-                  {msg.is_signal === 1 && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1 rounded uppercase">Signal</span>}
+          ) : (() => {
+            // Group messages by date
+            const grouped: Record<string, ContentItem[]> = {};
+            const today = new Date().toDateString();
+            const yesterday = new Date(Date.now() - 86400000).toDateString();
+
+            messages.forEach(msg => {
+              const msgDate = new Date(msg.created_at).toDateString();
+              const label = msgDate === today ? 'Today' : msgDate === yesterday ? 'Yesterday' : msgDate;
+              if (!grouped[label]) grouped[label] = [];
+              grouped[label].push(msg);
+            });
+
+            return Object.entries(grouped).map(([dateLabel, msgs]) => (
+              <div key={dateLabel}>
+                <div className="sticky top-0 bg-black/80 backdrop-blur-md py-2 mb-2 z-10">
+                  <span className="text-[10px] font-bold text-accent uppercase tracking-widest">{dateLabel}</span>
                 </div>
-                <p className="text-sm text-zinc-300 whitespace-pre-wrap">{msg.raw_text}</p>
+                <div className="space-y-3">
+                  {msgs.map(msg => (
+                    <div key={msg.id} className="glass p-3 rounded-xl border border-white/5 bg-zinc-900/40">
+                      <div className="flex justify-between items-start mb-1">
+                        <span className="text-[10px] text-accent font-mono">{new Date(msg.created_at).toLocaleTimeString()}</span>
+                        {msg.is_signal === 1 && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1 rounded uppercase">Signal</span>}
+                      </div>
+                      <p className="text-sm text-zinc-300 whitespace-pre-wrap">{msg.raw_text}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))
-          )}
+            ));
+          })()}
         </div>
       </div>
     );
