@@ -163,15 +163,13 @@ export class TelegramManager {
     /**
      * Downloads media from a message.
      */
-    async downloadMedia(message: Api.Message): Promise<Buffer | null> {
+    async downloadMedia(message: Api.Message): Promise<Uint8Array | null> {
         await this.connect();
         if (!this.client || !message.media) return null;
 
         try {
-            const buffer = await this.client.downloadMedia(message.media, {
-                workers: 1
-            });
-            return buffer as Buffer;
+            const buffer = await this.client.downloadMedia(message.media, {});
+            return buffer as Uint8Array;
         } catch (e) {
             console.error("[TelegramManager] Media download failed:", e);
             return null;
