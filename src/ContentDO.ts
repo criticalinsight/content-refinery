@@ -1955,9 +1955,20 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
                     }
 
                     if (match && match.media?.document?.mimeType === 'application/pdf') {
+                        // Log progress
+                        this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                            crypto.randomUUID(), "DEBUG_DIGEST", `Downloading PDF for ${item.source_name} (msgId: ${messageId || 'search'})...`, Date.now());
+
                         console.log(`[ContentRefinery] Processing PDF from ${item.source_name}...`);
                         const buffer = await tg.downloadMedia(match);
-                        if (!buffer) continue;
+                        if (!buffer) {
+                            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                                crypto.randomUUID(), "DEBUG_DIGEST", `❌ Failed to download PDF for ${item.source_name}`, Date.now());
+                            continue;
+                        }
+
+                        this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                            crypto.randomUUID(), "DEBUG_DIGEST", `Sending PDF (${Math.round(buffer.byteLength / 1024)} KB) to Gemini 2.0 Flash...`, Date.now());
 
                         let binary = '';
                         const bytes = new Uint8Array(buffer);

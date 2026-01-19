@@ -299,13 +299,12 @@ export class TelegramManager {
     }
 
     /**
-     * Fetch messages from a specific peer.
+     * Fetch messages from a specific peer with options.
      */
-    async getMessages(peer: any, limit: number): Promise<Api.Message[]> {
+    async getMessages(peer: any, options: any): Promise<Api.Message[]> {
         await this.connect();
         if (!this.client) return [];
-        const messages = await this.client.getMessages(peer, { limit });
-        return messages;
+        return await this.client.getMessages(peer, options);
     }
 
     async getDialogs(limit: number = 10) {
