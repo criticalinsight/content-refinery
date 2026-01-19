@@ -1,6 +1,7 @@
 export interface Env {
     CONTENT_DO: DurableObjectNamespace;
     VECTOR_INDEX: VectorizeIndex;
+    AI: any; // Cloudflare AI
     GEMINI_API_KEY: string;
     TELEGRAM_BOT_TOKEN: string;
     TELEGRAM_API_ID: string;
