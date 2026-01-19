@@ -165,8 +165,19 @@ export class TelegramManager {
 
             // Extract actual peer ID (channelId, chatId, or userId)
             const peer = message.peerId;
-            // Debug: Log the actual structure of peerId
-            console.log('[TelegramManager] peerId structure:', JSON.stringify(peer, (_, v) => typeof v === 'bigint' ? v.toString() : v));
+            const peerStr = JSON.stringify(peer, (_, v) => typeof v === 'bigint' ? v.toString() : v);
+
+            // LOG EVERYTHING TO internal_errors for debugging
+            try {
+                this.ctx.storage.sql.exec(
+                    "INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                    crypto.randomUUID(),
+                    "DEBUG_LISTENER",
+                    `Event: ${message.constructor.name}, Peer: ${peerStr}, Text: ${message.message?.substring(0, 50)}`,
+                    Date.now()
+                );
+            } catch (e) { }
+
             // Gram.js stores IDs as BigInt in some versions, so we need to handle that
             const chatId = String(peer?.channelId ?? peer?.chatId ?? peer?.userId ?? 'unknown');
 
