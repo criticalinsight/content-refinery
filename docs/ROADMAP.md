@@ -40,6 +40,9 @@
     - **Forensic Fact-Checking**: Verifies claims against trusted sources.
     - **Epistemic Analysis**: Validates logical soundness and identifies biases.
     - **High-Conviction Pitch**: Synthesizes insights into a 10-sentence elevator pitch.
+5. [x] **Smart Filtering & Auto-Pruning**:
+    - **Strict Scope**: Filters for Macro, Corporate, Crypto, Pitches, and Prediction Markets.
+    - **Channel Hygiene**: Automatically ignores channels with >100 consecutive irrelevant messages.
 
 ## 🔮 Phase 18: Predictive Alpha (Next)
 *Objective: Scoring and ranking assets based on graph centrality and sentiment.*
