@@ -2039,13 +2039,10 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
                         crypto.randomUUID(), "DEBUG_DIGEST", `❌ Loop Exception: ${e.message}`, Date.now());
                 }
             }
-            console.error(`[ContentRefinery] PDF Error for ${item.id}:`, e);
-        }
-            }
             return { success: true, message: 'PDF Extraction Complete' };
         } catch (e) {
-    console.error('Digest Error:', e);
-    throw e;
-}
+            console.error('Digest Error:', e);
+            throw e;
+        }
     }
 }
