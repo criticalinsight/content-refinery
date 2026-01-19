@@ -265,4 +265,37 @@ export class TelegramManager {
         if (!this.client) return;
         await this.client.sendMessage(chatId, { message: text, parseMode: "html" });
     }
+
+    /**
+     * Fetches historical messages from a chat.
+     */
+    async getHistory(limit: number): Promise<Api.Message[]> {
+        await this.connect();
+        if (!this.client) return [];
+
+        // Fetch from the main dialog/chat (assuming 'self' or a specific target in future)
+        // For now, let's fetch from the most recent active dialogs or a specific ID if provided.
+        // Actually, for a "general backfill", we might want to iterate over specific channels.
+        // But per request "import last 500 messages", we usually mean from the context where the user is commanding
+        // or a specific source.
+
+        // Implementation: Return empty for now, logic will be moved to ContentDO to iterate channels
+        return [];
+    }
+
+    /**
+     * Fetch messages from a specific peer.
+     */
+    async getMessages(peer: any, limit: number): Promise<Api.Message[]> {
+        await this.connect();
+        if (!this.client) return [];
+        const messages = await this.client.getMessages(peer, { limit });
+        return messages;
+    }
+
+    async getDialogs(limit: number = 10) {
+        await this.connect();
+        if (!this.client) return [];
+        return await this.client.getDialogs({ limit });
+    }
 }
