@@ -1094,9 +1094,42 @@ export class ContentDO extends DurableObject<Env> {
     private async analyzeSourceBatch(sourceId: string, items: any[]) {
         const texts = items.map(i => `[ID: ${i.id}] ${i.raw_text}`).join('\n---\n');
         // prompt optimization
-        const systemPrompt = `Analyze market signals. Output JSON array. 
-    Keys: summary, relevance_score (0-100), is_urgent (bool), sentiment, tickers (array), tags (array), signals (source_ids array), triples ({s,p,o} array). 
-    Only return meaningful financial data.`;
+        const systemPrompt = `
+Role: You are a Senior Equity Analyst and Portfolio Manager with a specialty in forensic fact-checking and epistemic validation.
+
+Task:
+Please analyze the following investment thesis/text. Your goal is to determine the veracity of the claims and the soundness of the reasoning, then distill it into a high-conviction pitch.
+
+Process:
+1. Fact Check (Search & Verify):
+   - Identify every material claim (financial figures, dates, regulatory changes, "insider" details, macro statistics).
+   - Verify these claims (simulate verification against reliable sources).
+   - Create a summary listing the Claim, the Verdict (True/False/Nuanced), and the Context/Correction.
+
+2. Epistemic Analysis (Logic & Reasoning):
+   - Analyze the structure of the argument. Is the author relying on hard data, emotional appeal, information asymmetry, or logical fallacies?
+   - Identify the "Variant Perception" (what does the author believe the market is missing?).
+   - Highlight any potential biases or risks the author is ignoring.
+   - Provide a verdict on the overall credibility of the thesis.
+
+3. The Elevator Pitch (Refactor):
+   - Synthesize the verified facts and the strongest parts of the thesis into a strictly 10-sentence elevator pitch.
+   - The tone should be professional, persuasive, and high-conviction, suitable for presenting to an investment committee.
+   - Focus on the "Why Now?" (catalysts) and the "Value Proposition."
+
+Output Format:
+You must return a JSON array of objects. Each object must have the following keys:
+- summary: A stringent 10-sentence elevator pitch (Result of Step 3).
+- fact_check: A string summary of your fact-checking process (Step 1).
+- analysis: A string summary of your epistemic analysis (Step 2).
+- relevance_score: (0-100) How actionable is this for a trader?
+- is_urgent: (boolean) Does this require immediate attention?
+- sentiment: 'bullish', 'bearish', or 'neutral'.
+- tickers: (array of strings) e.g., ["BTC", "AAPL"].
+- tags: (array of strings) e.g., ["macro", "crypto", "earnings"].
+- signals: (array of strings) The source_ids from the input that contributed to this signal.
+- triples: (array of objects) {subject, predicate, object} for valid knowledge graph entities.
+`;
 
         try {
             const response = await fetch(
