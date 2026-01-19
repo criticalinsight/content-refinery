@@ -199,110 +199,51 @@ export class ContentDO extends DurableObject<Env> {
         }
 
         if (url.pathname.startsWith('/webhooks/')) {
-            const type = url.pathname.split('/')[2];
-            if (['generic', 'discord', 'slack'].includes(type)) {
-                return this.handleWebhook(request, type as any);
-            }
+            return this.handleWebhook(request, url);
         }
 
-        if (url.pathname === '/health') {
-            return Response.json({ status: 'healthy', timestamp: new Date().toISOString() });
+        if (url.pathname.startsWith('/knowledge')) {
+            return this.handleKnowledgeSync(request, url);
         }
 
-        if (url.pathname === '/stats' && request.method === 'GET') {
-            const totalItems = this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items').toArray()[0] as any;
-            const signalCount = this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items WHERE is_signal = 1').toArray()[0] as any;
-            const processedCount = this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items WHERE processed_json IS NOT NULL').toArray()[0] as any;
-            return Response.json({
-                totalItems: totalItems?.cnt || 0,
-                processedItems: processedCount?.cnt || 0,
-                signals: signalCount?.cnt || 0,
-                timestamp: new Date().toISOString()
-            });
+        if (url.pathname.startsWith('/telegram/auth')) {
+            return this.handleTelegramAuth(request, url);
         }
 
-        if (url.pathname === '/ingest' && request.method === 'POST') {
-            return this.handleIngest(request);
+        if (url.pathname.startsWith('/signals')) {
+            return this.handleSignalSearch(request, url);
         }
 
-        if (url.pathname === '/process' && request.method === 'POST') {
-            await this.processBatch();
-            return Response.json({ success: true });
-        }
+        return new Response('Not found', { status: 404 });
+    }
 
-        if (url.pathname === '/sql' && request.method === 'POST') {
-            const body = await request.json() as any;
-            const result = this.ctx.storage.sql.exec(body.sql, ...(body.params || [])).toArray();
-            return Response.json({ result });
-        }
-
-        if (url.pathname === '/knowledge/sync' && request.method === 'GET') {
-            const items = this.ctx.storage.sql.exec(
-                'SELECT id, processed_json FROM content_items WHERE processed_json IS NOT NULL AND synced_to_graph = 0 LIMIT 50'
-            ).toArray();
-            return Response.json({ items });
-        }
-
-        if (url.pathname === '/knowledge/mark-synced' && request.method === 'POST') {
-            const body = await request.json() as any;
-            if (Array.isArray(body.ids)) {
-                for (const id of body.ids) {
-                    this.ctx.storage.sql.exec('UPDATE content_items SET synced_to_graph = 1 WHERE id = ?', id);
-                }
-            }
-            return Response.json({ success: true });
-        }
-
-        if (url.pathname === '/knowledge/graph') {
-            return this.handleGraph(request);
-        }
-
-        if (url.pathname === '/knowledge/alpha') {
-            return this.handleAlpha(request);
-        }
-
-        if (url.pathname === '/knowledge/narratives') {
-            return this.handleNarratives(request);
-        }
-
-        if (url.pathname === '/ws') {
-            const upgradeHeader = request.headers.get('Upgrade');
-            if (!upgradeHeader || upgradeHeader !== 'websocket') {
-                return new Response('Expected Upgrade: websocket', { status: 426 });
-            }
-
-            const pair = new WebSocketPair();
-            const [client, server] = Object.values(pair);
-
-            this.ctx.acceptWebSocket(server);
-
-            return new Response(null, { status: 101, webSocket: client });
-        }
-
+    /**
+     * Handles Telegram authentication and status endpoints.
+     */
+    private async handleTelegramAuth(request: Request, url: URL): Promise<Response> {
         if (url.pathname === '/telegram/auth/status' && request.method === 'GET') {
             if (!this.env.TELEGRAM_API_ID || !this.env.TELEGRAM_API_HASH) {
-                return Response.json({ status: 'unconfigured', error: 'TELEGRAM_API_ID and TELEGRAM_API_HASH must be set as secrets.' });
+                return this.sendError('TELEGRAM_API_ID and TELEGRAM_API_HASH must be set as secrets.', 500, { status: 'unconfigured' });
             }
             try {
                 const tg = await this.ensureTelegram();
                 const loggedIn = await tg.isLoggedIn();
                 return Response.json({ status: loggedIn ? 'online' : 'offline' });
             } catch (e) {
-                return Response.json({ status: 'error', error: e instanceof Error ? e.message : String(e) });
+                return this.sendError(e instanceof Error ? e.message : String(e), 400, { status: 'error' });
             }
         }
 
         if (url.pathname === '/telegram/auth/send-code' && request.method === 'POST') {
             const { phone } = await request.json() as any;
             const tg = await this.ensureTelegram();
-
             try {
                 const phoneCodeHash = await tg.sendCode(phone);
                 await this.ctx.storage.put('tg_phone', phone);
                 await this.ctx.storage.put('tg_phone_code_hash', phoneCodeHash);
                 return Response.json({ success: true, message: 'Code sent to your Telegram app' });
             } catch (e) {
-                return Response.json({ success: false, error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+                return this.sendError(e instanceof Error ? e.message : String(e));
             }
         }
 
@@ -311,35 +252,17 @@ export class ContentDO extends DurableObject<Env> {
             const phone = await this.ctx.storage.get<string>('tg_phone');
             const phoneCodeHash = await this.ctx.storage.get<string>('tg_phone_code_hash');
 
-            if (!phone || !phoneCodeHash) {
-                return Response.json({ success: false, error: 'No pending sign-in. Call send-code first.' }, { status: 400 });
-            }
+            if (!phone || !phoneCodeHash) return this.sendError('No pending sign-in. Call send-code first.');
 
             const tg = await this.ensureTelegram();
-
             try {
-                let newSession: string;
-                if (password) {
-                    // 2FA flow
-                    newSession = await tg.checkPassword(password);
-                } else {
-                    // Regular sign-in
-                    newSession = await tg.signIn(phone, phoneCodeHash, code);
-                }
-
+                let newSession = password ? await tg.checkPassword(password) : await tg.signIn(phone, phoneCodeHash, code);
                 await this.ctx.storage.put('tg_session', newSession);
-
-                // Start listener
-                tg.listen(async (msg) => {
-                    await this.handleIngestInternal(msg);
-                });
-
+                tg.listen(async (msg) => { await this.handleIngestInternal(msg); });
                 return Response.json({ success: true });
             } catch (e: any) {
-                if (e.message === '2FA_REQUIRED') {
-                    return Response.json({ success: false, requires2FA: true, error: 'Two-factor authentication required' }, { status: 200 });
-                }
-                return Response.json({ success: false, error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+                if (e.message === '2FA_REQUIRED') return Response.json({ success: false, requires2FA: true, error: '2FA required' });
+                return this.sendError(e.message);
             }
         }
 
@@ -347,93 +270,65 @@ export class ContentDO extends DurableObject<Env> {
             try {
                 const tg = await this.ensureTelegram();
                 const client = tg.getClient();
-                if (!client || !await tg.isLoggedIn()) {
-                    return Response.json({ loggedIn: false });
-                }
+                if (!client || !await tg.isLoggedIn()) return Response.json({ loggedIn: false });
                 const me = await client.getMe();
                 return Response.json({
                     loggedIn: true,
-                    user: {
-                        id: me.id?.toString(),
-                        firstName: me.firstName,
-                        lastName: me.lastName,
-                        username: me.username,
-                        phone: me.phone
-                    }
+                    user: { id: me.id?.toString(), firstName: me.firstName, lastName: me.lastName, username: me.username }
                 });
             } catch (e) {
-                return Response.json({ loggedIn: false, error: e instanceof Error ? e.message : String(e) });
+                return Response.json({ loggedIn: false, error: String(e) });
             }
         }
 
-        // QR Login: Get QR code token
-        if (url.pathname === '/telegram/auth/qr-token' && request.method === 'GET') {
+        if (url.pathname === '/telegram/auth/qr-token') {
+            const tg = await this.ensureTelegram();
             try {
-                const tg = await this.ensureTelegram();
                 const tokenData = await tg.getQrLoginToken();
-                return Response.json({
-                    success: true,
-                    token: tokenData.token,
-                    url: tokenData.url,
-                    expires: tokenData.expires
-                });
+                return Response.json({ success: true, ...tokenData });
             } catch (e) {
-                return Response.json({ success: false, error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+                return this.sendError(String(e));
             }
         }
 
-        // QR Login: Check if user scanned QR and approved
-        if (url.pathname === '/telegram/auth/qr-check' && request.method === 'GET') {
+        if (url.pathname === '/telegram/auth/qr-check') {
+            const tg = await this.ensureTelegram();
             try {
-                const tg = await this.ensureTelegram();
                 const result = await tg.checkQrLogin();
-
                 if (result.success && result.session) {
                     await this.ctx.storage.put('tg_session', result.session);
-
-                    // Start listener
-                    tg.listen(async (msg) => {
-                        await this.handleIngestInternal(msg);
-                    });
-
+                    tg.listen(async (msg) => { await this.handleIngestInternal(msg); });
                     return Response.json({ success: true, loggedIn: true });
                 }
-
-                return Response.json({
-                    success: true,
-                    loggedIn: false,
-                    needsPassword: result.needsPassword || false
-                });
+                return Response.json({ success: true, loggedIn: false, needsPassword: result.needsPassword });
             } catch (e) {
-                return Response.json({ success: false, error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+                return this.sendError(String(e));
             }
         }
 
-        // QR Login: Submit 2FA password after QR scan
-        if (url.pathname === '/telegram/auth/qr-password' && request.method === 'POST') {
+        if (url.pathname === '/telegram/auth/qr-password') {
             const { password } = await request.json() as any;
-
-            if (!password) {
-                return Response.json({ success: false, error: 'Password is required' }, { status: 400 });
-            }
-
+            if (!password) return this.sendError('Password required');
             const tg = await this.ensureTelegram();
-
             try {
                 const newSession = await tg.checkPassword(password);
                 await this.ctx.storage.put('tg_session', newSession);
-
-                // Start listener
-                tg.listen(async (msg) => {
-                    await this.handleIngestInternal(msg);
-                });
-
+                tg.listen(async (msg) => { await this.handleIngestInternal(msg); });
                 return Response.json({ success: true });
             } catch (e) {
-                return Response.json({ success: false, error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+                return this.sendError(String(e));
             }
         }
 
+        return this.sendError('Not found', 404);
+    }
+
+    /**
+     * Handles signal search, listing, and export endpoints.
+     * Time Complexity (Search): O(N) where N is the number of signals (SQL indexed on created_at).
+     * Time Complexity (Export): O(N) where N is the number of items to format.
+     */
+    private async handleSignalSearch(request: Request, url: URL): Promise<Response> {
         // Signal Search with filters
         if (url.pathname === '/signals/search' && request.method === 'GET') {
             const query = url.searchParams.get('q') || '';
@@ -591,27 +486,46 @@ export class ContentDO extends DurableObject<Env> {
             return Response.json({ sources: sources.map((s: any) => s.source_name) });
         }
 
-        return new Response('Not found', { status: 404 });
+        return this.sendError('Endpoint not found', 404);
     }
 
-    // Graph API
-    async handleGraph(request: Request): Promise<Response> {
-        if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+    /**
+     * Handles webhook-based content ingestion from Discord, Slack, etc.
+     * Time Complexity: O(1) for ingestion.
+     */
+    private async handleWebhook(request: Request, url: URL): Promise<Response> {
+        const type = url.pathname.split('/')[2] as any;
+        if (!['generic', 'discord', 'slack'].includes(type)) return this.sendError('Unsupported webhook type', 400);
 
-        const limit = 200; // Limit nodes for performance
+        const body = await request.json() as any;
+        await this.handleIngestInternal({
+            text: body.content || body.text || body.message,
+            chatId: body.channel_id || body.source_id || 'webhook',
+            title: body.channel_name || body.source_name || `${type} Webhook`
+        });
+        return Response.json({ success: true });
+    }
 
-        // Fetch top nodes by importance/connectivity
-        const nodes = this.ctx.storage.sql.exec(
-            `SELECT * FROM graph_nodes ORDER BY importance DESC LIMIT ?`, limit
-        ).toArray();
+    /**
+     * Handles knowledge management endpoints (graph, alpha, narratives).
+     */
+    private async handleKnowledgeSync(request: Request, url: URL): Promise<Response> {
+        if (url.pathname === '/knowledge/sync') {
+            const items = this.ctx.storage.sql.exec('SELECT id, processed_json FROM content_items WHERE processed_json IS NOT NULL AND synced_to_graph = 0 LIMIT 50').toArray();
+            return Response.json({ items });
+        }
+        if (url.pathname === '/knowledge/mark-synced') {
+            const body = await request.json() as any;
+            if (Array.isArray(body.ids)) {
+                for (const id of body.ids) this.ctx.storage.sql.exec('UPDATE content_items SET synced_to_graph = 1 WHERE id = ?', id);
+            }
+            return Response.json({ success: true });
+        }
+        if (url.pathname === '/knowledge/graph') return this.handleGraph(request);
+        if (url.pathname === '/knowledge/alpha') return this.handleAlpha(request);
+        if (url.pathname === '/knowledge/narratives') return this.handleNarratives(request);
 
-        // Fetch edges between these nodes
-        const nodeIds = nodes.map((n: any) => `'${n.id}'`).join(',');
-        const edges = nodeIds ? this.ctx.storage.sql.exec(
-            `SELECT * FROM graph_edges WHERE source IN (${nodeIds}) AND target IN (${nodeIds}) LIMIT 500`
-        ).toArray() : [];
-
-        return Response.json({ nodes, links: edges });
+        return this.sendError('Knowledge endpoint not found', 404);
     }
 
     // Alpha API
