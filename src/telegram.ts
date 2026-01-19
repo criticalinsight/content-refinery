@@ -16,7 +16,7 @@ export class TelegramManager {
     private isListening: boolean = false;
     private onSessionUpdate?: (session: string) => Promise<void>;
 
-    constructor(private env: any, sessionStr: string = "", onSessionUpdate?: (session: string) => Promise<void>) {
+    constructor(private env: any, private storage: any, sessionStr: string = "", onSessionUpdate?: (session: string) => Promise<void>) {
         this.session = new StringSession(sessionStr);
         this.onSessionUpdate = onSessionUpdate;
     }
@@ -169,7 +169,7 @@ export class TelegramManager {
 
             // LOG EVERYTHING TO internal_errors for debugging
             try {
-                this.ctx.storage.sql.exec(
+                this.storage.sql.exec(
                     "INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
                     crypto.randomUUID(),
                     "DEBUG_LISTENER",
