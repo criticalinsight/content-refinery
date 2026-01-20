@@ -33,6 +33,15 @@ Translate the high-alpha financial intelligence from the refinery into a scalabl
 - **Auth**: Token-based authentication via URL params or subprotocol.
 - **Performance**: Direct streaming from `notifySignal` to all connected clients.
 
+### D. Interactive Deep Activation
+- **Interface**: Telegram Inline Keyboards (4 buttons per signal).
+- **Actions**:
+    - `chk`: Forensic Fact-Check (Evidence Map).
+    - `syn`: Executive Synthesis (Elevator Pitch).
+    - `div`: Epistemic Deep Dive (Limits of Knowledge).
+    - `grf`: Entity Graph Visualization.
+- **Routing**: `TelegramManager` listens for `CallbackQuery`, encodes as `CALLBACK:action:id`, `ContentDO` intercepts and executes via Gemini 2.0 Flash.
+
 ## 4. Visual Architecture
 ```mermaid
 sequenceDiagram

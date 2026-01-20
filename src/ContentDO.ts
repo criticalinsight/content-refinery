@@ -3,6 +3,9 @@ import { Env } from './types';
 import { TelegramManager } from './telegram';
 import { fetchAndParseRSS } from './utils/rss';
 import { ErrorLogger } from './ErrorLogger';
+import { PDFDocument } from 'pdf-lib';
+import { Button } from "telegram/tl/custom/button";
+import { Buffer } from "node:buffer";
 
 interface ChannelConfig {
     id: string; // Telegram Chat ID
@@ -517,6 +520,22 @@ export class ContentDO extends DurableObject<Env> {
             return Response.json(responseData);
         }
 
+        // Vector Search (Semantic)
+        if (url.pathname === '/search/vector' && request.method === 'GET') {
+            const query = url.searchParams.get('q');
+            if (!query) return this.sendError('Query required', 400);
+
+            try {
+                const queryVector = await this.generateEmbeddings(query);
+                if (!queryVector) return this.sendError('Failed to generate query embedding', 500);
+
+                const matches = await this.env.VECTOR_INDEX.query(queryVector, { topK: 10, returnMetadata: true });
+                return Response.json({ matches });
+            } catch (e) {
+                return this.sendError(`Vector search failed: ${e}`);
+            }
+        }
+
         // List signals (simple paginated list)
         if (url.pathname === '/signals' && request.method === 'GET') {
             const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
@@ -879,9 +898,7 @@ export class ContentDO extends DurableObject<Env> {
             } else if (keyword) {
                 if (dry_run) {
                     const count = this.ctx.storage.sql.exec('SELECT COUNT(*) as c FROM content_items WHERE raw_text LIKE ?', `%${keyword}%`).one() as any;
-                    deleted = count?.c || 0;
-                } else {
-                    this.ctx.storage.sql.exec('DELETE FROM content_items WHERE raw_text LIKE ?', `%${keyword}%`);
+            this.ctx.storage.sql.exec('DELETE FROM content_items WHERE raw_text LIKE ?', `%${keyword}%`);
                     deleted = 1;
                 }
             } else {
@@ -1091,6 +1108,14 @@ export class ContentDO extends DurableObject<Env> {
 
         if (!text) return "no_content";
 
+
+        // Handle Callbacks (Button Clicks)
+        if (text.startsWith('CALLBACK:')) {
+            const data = text.substring(9);
+            await this.handleCallback(data, body.chatId, body.messageId);
+            return `callback:${data}`;
+        }
+
         // Phase 16: Slash Command Router
         if (text.startsWith('/')) {
             const response = await this.handleSlashCommand(text, body.chatId);
@@ -1149,12 +1174,73 @@ export class ContentDO extends DurableObject<Env> {
                 if (args.length < 2) return '❌ Usage: /add <name> <url>';
                 const name = args[0];
                 const url = args.slice(1).join(' ');
-                const feedId = crypto.randomUUID();
+                
                 this.ctx.storage.sql.exec(
-                    "INSERT INTO channels (id, name, type, feed_url, created_at) VALUES (?, ?, 'rss', ?, ?)",
-                    feedId, name, url, Date.now()
+                    'INSERT INTO sources (id, name, type, url, created_at) VALUES (?, ?, ?, ?, ?)',
+                    crypto.randomUUID(), name, 'rss', url, Date.now()
                 );
-                return `✅ Added RSS feed: ${name}`;
+                return `✅ Added source: ${name}`;
+            }
+
+            case '/graph': {
+                const entity = args.join(' ');
+                if (!entity) return '❌ Usage: /graph <Entity Name>';
+
+                const edges = this.ctx.storage.sql.exec(`
+                    SELECT * FROM graph_edges 
+                    WHERE source LIKE ? OR target LIKE ? 
+                    ORDER BY weight DESC LIMIT 10
+                `, `%${entity}%`, `%${entity}%`).toArray() as any[];
+
+                if (edges.length === 0) return `🕸️ No known relationships for "${entity}".`;
+
+                let graphText = `<b>Knowledge Graph: ${entity}</b>\n\n`;
+                for (const e of edges) {
+                    if (e.source.toLowerCase().includes(entity.toLowerCase())) {
+                        graphText += `👉 <i>${e.relation}</i> <b>${e.target}</b>\n`;
+                    } else {
+                        graphText += `👈 <b>${e.source}</b> <i>${e.relation}</i>\n`;
+                    }
+                }
+                return graphText;
+            }
+
+            case '/ask': {
+                const query = args.join(' ');
+                if (!query) return '❌ Usage: /ask <Market Question>';
+
+                // 1. Vector Search
+                const queryVector = await this.generateEmbeddings(query);
+                if (!queryVector) return '❌ Failed to generate embeddings for search.';
+
+                const searchRes = await this.env.VECTOR_INDEX.query(queryVector, { topK: 5, returnMetadata: true });
+                const context = searchRes.matches.map(m => `- ${m.metadata?.summary} (Score: ${Math.round(m.score * 100)}%)`).join('\n');
+
+                if (!context) return '🤷 No relevant signals found in the refinery.';
+
+                // 2. Synthesis (Gemini)
+                try {
+                    const response = await fetch(
+                        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${this.env.GEMINI_API_KEY}`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{
+                                    role: 'user',
+                                    parts: [{ text: `Context:\n${context}\n\nQuestion: ${query}\n\nTask: Answer the question using the provided context. Be data-driven and concise.` }]
+                                }],
+                                generationConfig: { temperature: 0.3 }
+                            })
+                        }
+                    );
+                    const result = await response.json() as any;
+                    const answer = result.candidates?.[0]?.content?.parts?.[0]?.text || "Failed to synthesize answer.";
+                    
+                    return `🧠 <b>Deep Dive: ${query}</b>\n\n${answer}\n\n<i>Sources: ${searchRes.matches.length} signals invoked.</i>`;
+                } catch (e) {
+                    return `❌ Analysis failed: ${String(e)}`;
+                }
             }
 
             case '/ignore': {
@@ -1231,49 +1317,58 @@ export class ContentDO extends DurableObject<Env> {
         const systemPrompt = `
 Role: You are a Senior Equity Analyst and Portfolio Manager with a specialty in forensic fact-checking and epistemic validation.
 
-Task:
-Please analyze the following investment thesis/text. Your goal is to determine the veracity of the claims and the soundness of the reasoning, then distill it into a high-conviction pitch.
+Task: Analyze the provided text. Your goal is not to summarize, but to synthesize *why it matters* and *what is missing*.
 
-**SCOPE FILTER:**
-You must ONLY output a signal if the content falls strictly into one of these categories:
-1. Global Macro (Central Banks, Geopolitics affecting markets)
-2. Corporate News (Earnings, M&A, Leadership)
-3. Stock Pitches (Long/Short, Valuation)
-4. Crypto Pitches (Tokens, DeFi, Protocols)
-5. Crypto Macro (Regulation, Adoption, Cycles)
-6. Prediction Markets (Polymarket, Betting odds on finance/politics)
+**I. SCOPE FILTER (STRICT):**
+Output a signal ONLY if the content falls into:
+1.  **Global Macro**: Central Banks, Geopolitics affecting markets, Rates.
+2.  **Corporate News**: Earnings, M&A, Leadership changes, Strategic pivots.
+3.  **Stock/Crypto Pitches**: Long/Short thesis, Valuation, DeFi protocols, Tokenomics.
+4.  **Prediction Markets**: Polymarket odds on finance/politics.
+*Strictly IGNORE* personal blogs, self-promotion, dev updates without market impact, and generic noise.
 
-**Strictly IGNORE** personal blog updates, self-promotion, dev updates without market impact, and generic noise. If it doesn't fit the scope, return an empty analysis/low score.
+**II. PROCESS: THE EPISTEMIC ENGINE**
+Execute this logic *internally* before generating output:
 
-Process:
-1. Fact Check (Search & Verify):
-   - Identify every material claim (financial figures, dates, regulatory changes, "insider" details, macro statistics).
-   - Verify these claims (simulate verification against reliable sources).
-   - Create a summary listing the Claim, the Verdict (True/False/Nuanced), and the Context/Correction.
+1.  **SOURCE HIERARCHY**:
+    -   *Gold*: Official Filings (10-K), Primary Data, Code Repos.
+    -   *Silver*: Reputable Media (Reuters/Bloomberg), Known Experts.
+    -   *Bronze/Dust*: Unverified Socials, Opinion. *Downweight these unless corroborating Gold.*
 
-2. Epistemic Analysis (Logic & Reasoning):
-   - Analyze the structure of the argument. Is the author relying on hard data, emotional appeal, information asymmetry, or logical fallacies?
-   - Identify the "Variant Perception" (what does the author believe the market is missing?).
-   - Highlight any potential biases or risks the author is ignoring.
-   - Provide a verdict on the overall credibility of the thesis.
+2.  **COGNITIVE FORCING (The "Why"):**
+    -   *Validity Check*: Is this causal or merely correlation?
+    -   *Counter-Factual*: What evidence exists that contradicts this?
+    -   *Novelty*: Is this common knowledge? If yes, discard or compress.
 
-3. The Elevator Pitch (Refactor):
-   - Synthesize the verified facts and the strongest parts of the thesis into a strictly 10-sentence elevator pitch.
-   - The tone should be professional, persuasive, and high-conviction, suitable for presenting to an investment committee.
-   - Focus on the "Why Now?" (catalysts) and the "Value Proposition."
+3.  **ANALYSIS**:
+    -   Identify the **Variant Perception** (What is the diverse view?).
+    -   Simulate verification against reliable sources for all claims.
 
-Output Format:
-You must return a JSON array of objects. Each object must have the following keys:
-- summary: A stringent 10-sentence elevator pitch (Result of Step 3).
-- fact_check: A string summary of your fact-checking process (Step 1).
-- analysis: A string summary of your epistemic analysis (Step 2).
-- relevance_score: (0-100) How actionable is this for a trader?
-- is_urgent: (boolean) Does this require immediate attention?
-- sentiment: 'bullish', 'bearish', or 'neutral'.
-- tickers: (array of strings) e.g., ["BTC", "AAPL"].
-- tags: (array of strings) e.g., ["macro", "crypto", "earnings"].
-- signals: (array of strings) The source_ids from the input that contributed to this signal.
-- triples: (array of objects) {subject, predicate, object} for valid knowledge graph entities.
+**III. REQUIRED OUTPUT (JSON)**:
+Return a single JSON object with these keys:
+
+- **"fact_check"** (The Evidence Map):
+  - List conflicting data points, methodological gaps, and source limits.
+  - Format: "- Claim: [Verdict] (Context)".
+
+- **"summary"** (The Synthesis):
+  - A strictly 10-sentence "Elevator Pitch" suitable for an Investment Committee.
+  - Tone: Professional, persuasive, high-conviction.
+  - Focus on "Why Now?" (Catalysts) and "Value Proposition". Connect disparate concepts from Part I.
+
+- **"analysis"** (The Deep Dive):
+  - Explicitly state what you *cannot* know. Define the boundary between knowledge and speculation.
+  - Explain the *implications* (6-12 month view).
+
+- **"relevance_score"**: (0-100) Actionability score. >80 requires high novelty + validation.
+- **"is_urgent"**: (boolean) Requires immediate execution?
+- **"sentiment"**: 'bullish', 'bearish', or 'neutral'.
+- **"tickers"**: (array of strings) e.g. ["AAPL", "BTC"].
+- **"tags"**: (array of strings) e.g. ["Macro", "AI"].
+- **"signals"**: (array of strings) The source_ids from the input that contributed to this signal.
+- **"triples"**: (array of objects) Knowledge graph entities {subject, predicate, object}.
+
+Constraint: Return strictly valid JSON.
 `;
 
         try {
@@ -1308,6 +1403,30 @@ You must return a JSON array of objects. Each object must have the following key
                     // Phase 16: Signal Mirroring (Score > 80)
                     if (intel.relevance_score > 80) {
                         await this.mirrorSignal(intel, sourceId, items[0].source_name);
+                    }
+
+                    // Phase 4: Vector Intelligence (RAG)
+                    // Embed and Index the signal summary for semantic search
+                    try {
+                        if (this.env.VECTOR_INDEX) {
+                            const vector = await this.generateEmbeddings(intel.summary);
+                            if (vector) {
+                                await this.env.VECTOR_INDEX.upsert([{
+                                    id: crypto.randomUUID(),
+                                    values: vector,
+                                    metadata: {
+                                        summary: intel.summary,
+                                        sentiment: intel.sentiment,
+                                        relevance: intel.relevance_score,
+                                        tickers: (intel.tickers || []).join(','),
+                                        created_at: Date.now()
+                                    }
+                                }]);
+                                // console.log(`[ContentRefinery] Indexed signal vector: ${intel.summary.substring(0, 30)}...`);
+                            }
+                        }
+                    } catch (e) {
+                        console.error('[ContentRefinery] Vector indexing failed:', e);
                     }
 
                     const sourceIds = intel.signals || intel.source_ids;
@@ -1537,6 +1656,22 @@ You must return a JSON array of objects. Each object must have the following key
         }
     }
 
+    /**
+     * Generates vector embeddings for semantic search using BGE-Base.
+     */
+    private async generateEmbeddings(text: string): Promise<number[] | null> {
+        try {
+            if (!this.env.AI) return null;
+            // truncate to avoid token limits (approx 512 tokens)
+            const input = text.substring(0, 1000); 
+            const result = await this.env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [input] });
+            return result.data[0];
+        } catch (e) {
+            console.error('[ContentRefinery] Embedding generation failed:', e);
+            return null;
+        }
+    }
+
     private async encryptSignal(intel: any): Promise<string> {
         // Simple mock encryption (AES-256-GCM logic would go here)
         // For brevity in CF Worker, we'll use a placeholder or base64
@@ -1705,6 +1840,82 @@ You must return a JSON array of objects. Each object must have the following key
         this.narrativeCache = null;
     }
 
+    private async handleCallback(data: string, chatId: string, messageId: number) {
+        const [action, id] = data.split(':');
+        const item = this.ctx.storage.sql.exec("SELECT * FROM content_items WHERE id = ?", id).toArray()[0] as any;
+        
+        if (!item) {
+            const tg = await this.ensureTelegram();
+            await tg.sendMessage(chatId, "❌ Signal not found or expired.");
+            return;
+        }
+
+        let prompt = "";
+        let label = "";
+
+        switch (action) {
+            case 'chk': // Fact Check
+                label = "🔎 FACT CHECK (Evidence Map)";
+                prompt = `SYSTEM: You are a Forensic Fact-Checker.
+TASK: Analyze the text and output a strictly structured "Evidence Map".
+OUTPUT FORMAT:
+- ❌ [CLAIM]: [VERDICT] -> [CORRECTION/CONTEXT]
+- ✅ [CLAIM]: [VERIFIED]
+- ⚠️ [CLAIM]: [UNVERIFIED] -> [MISSING DATA]
+Constraint: Be ruthless. If a claim lacks a source, flag it.`;
+                break;
+            case 'syn': // Synthesis
+                label = "⚡ SYNTHESIS (Elevator Pitch)";
+                prompt = `SYSTEM: You are a Portfolio Manager giving an Elevator Pitch.
+TASK: Condense the text into a strict 10-sentence narrative.
+FOCUS: "Why Now?" (Catalysts) and "So What?" (Implications).
+Constraint: Professional, high-conviction tone.`;
+                break;
+            case 'div': // Deep Dive
+                label = "🧠 DEEP DIVE (Epistemic Analysis)";
+                prompt = `SYSTEM: You are an Epistemic Analyst.
+TASK: Perform a deep epistemic audit of the text.
+OUTPUT FORMAT:
+1. THE UNKNOWN: What is explicitly missing?
+2. THE VARIANT PERCEPTION: What is the contrarian view?
+3. THE VALIDITY CHECK: Correlation vs Causation errors?
+4. THE LIMITS: Where does knowledge end and speculation begin?`;
+                break;
+            case 'grf': // Graph
+                await this.handleSlashCommand(`/graph ${item.source_name}`, chatId);
+                return;
+            default:
+                return;
+        }
+
+        const tg = await this.ensureTelegram();
+        await tg.sendMessage(chatId, `⏳ Running <b>${label}</b>...`);
+
+        try {
+            const response = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent?key=${this.env.GEMINI_API_KEY}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ role: 'user', parts: [{ text: `Original Text: ${item.raw_text}\n\n---\n\n${prompt}` }] }]
+                    })
+                }
+            );
+
+            const result = await response.json() as any;
+            const analysis = result.candidates?.[0]?.content?.parts?.[0]?.text;
+            
+            if (analysis) {
+                await tg.sendMessage(chatId, `<b>${label}</b>\n\n${analysis}`);
+            } else {
+                await tg.sendMessage(chatId, `❌ Analysis failed.`);
+            }
+        } catch (e) {
+            await tg.sendMessage(chatId, `❌ Error: ${e}`);
+        }
+    }
+
     private async detectNarratives() {
         console.log('[ContentRefinery] Detecting Market Narratives...');
 
@@ -1851,33 +2062,81 @@ You must return a JSON array of objects. Each object must have the following key
     private async mirrorSignal(intel: any, sourceId: string, sourceName: string) {
         const ALPHA_CHANNEL = "-1003589267081";
 
-        try {
-            const sentimentIcon = intel.sentiment === 'positive' ? '🟢' : intel.sentiment === 'negative' ? '🔴' : '⚪️';
-            const urgencyIcon = intel.is_urgent ? '🚨 ' : '📡 ';
+        this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+             crypto.randomUUID(), "DEBUG_TELEGRAM", `Attempting to mirror signal: ${intel.summary.substring(0, 50)}... Score: ${intel.relevance_score}`, Date.now());
 
-            let message = `${intel.summary}\n\n`;
-
-            if (intel.tickers?.length > 0) {
-                message += `🏷 ${intel.tickers.map((t: string) => `$${t}`).join(' ')}\n\n`;
-            }
-
-            message += `━━━━━━━━━━━━━━━\n`;
-            message += `<b>Source:</b> ${sourceName}\n`;
-            message += `<b>Sentiment:</b> ${sentimentIcon} ${intel.sentiment?.toUpperCase()}\n`;
-            message += `<b>Relevance:</b> ⚡️ ${intel.relevance_score}%\n`;
-
-
-
-            try {
-                const tg = await this.ensureTelegram();
-                await tg.sendMessage(ALPHA_CHANNEL, message);
-                console.log(`[ContentRefinery] Signal mirrored to ${ALPHA_CHANNEL}`);
-            } catch (e) {
-                console.error('[ContentRefinery] Failed to mirror signal:', e);
-            }
-        } catch (e) {
-            await this.logger.log('SignalMirror', e);
+        if (intel.relevance_score < 80) {
+             this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                 crypto.randomUUID(), "DEBUG_TELEGRAM", `Skipping mirror: Score ${intel.relevance_score} < 80`, Date.now());
+             return;
         }
+
+        try {
+            const message = `🚨 <b>Create Signal</b>\n\n` +
+                `<b>Headline:</b> ${intel.summary.substring(0, 100)}...\n` +
+                `<b>Relevance:</b> ${intel.relevance_score}/100\n` +
+                `<b>Source:</b> ${sourceName}\n\n` +
+                `<i>${intel.analysis.substring(0, 200)}...</i>\n\n` +
+                `#${intel.tickers.join(' #')} #Alpha`;
+
+            const tg = await this.ensureTelegram();
+            const buttons = [
+                [
+                    Button.inline("🔎 Fact Check", Buffer.from(`chk:${intel.id}`)),
+                    Button.inline("⚡ Synthesis", Buffer.from(`syn:${intel.id}`))
+                ],
+                [
+                    Button.inline("🧠 Deep Dive", Buffer.from(`div:${intel.id}`)),
+                    Button.inline("🕸️ Graph", Buffer.from(`grf:${intel.id}`))
+                ]
+            ];
+
+            await tg.sendMessage(ALPHA_CHANNEL, message, buttons);
+            
+            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                crypto.randomUUID(), "DEBUG_TELEGRAM", `✅ Signal mirrored to ${ALPHA_CHANNEL}`, Date.now());
+                
+            console.log(`[ContentRefinery] Signal mirrored to ${ALPHA_CHANNEL}`);
+        } catch (e: any) {
+            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                crypto.randomUUID(), "DEBUG_TELEGRAM", `❌ Failed to mirror signal: ${e.message}`, Date.now());
+            console.error('[ContentRefinery] Failed to mirror signal:', e);
+        }
+    }
+
+    /**
+     * Helper to split a large PDF into smaller chunks.
+     * @param buffer Original PDF ArrayBuffer or Uint8Array
+     * @param maxPages Max pages per chunk (default 10)
+     */
+    /**
+     * Helper to split a large PDF into smaller chunks with page metadata.
+     * @param buffer Original PDF ArrayBuffer or Uint8Array
+     * @param maxPages Max pages per chunk (default 10)
+     */
+    private async splitPdf(buffer: ArrayBuffer | Uint8Array, maxPages: number = 10): Promise<{ buffer: Uint8Array, startPage: number, endPage: number }[]> {
+        const pdfDoc = await PDFDocument.load(buffer);
+        const totalPages = pdfDoc.getPageCount();
+        const chunks: { buffer: Uint8Array, startPage: number, endPage: number }[] = [];
+
+        for (let i = 0; i < totalPages; i += maxPages) {
+            const subDoc = await PDFDocument.create();
+            const pageIndices = [];
+            for (let j = 0; j < maxPages && (i + j) < totalPages; j++) {
+                pageIndices.push(i + j);
+            }
+            const copiedPages = await subDoc.copyPages(pdfDoc, pageIndices);
+            copiedPages.forEach(page => subDoc.addPage(page));
+            const chunkBytes = await subDoc.save();
+            
+            // i is 0-indexed, so page 1 is i+1
+            chunks.push({ 
+                buffer: chunkBytes, 
+                startPage: i + 1, 
+                endPage: Math.min(i + maxPages, totalPages) 
+            });
+        }
+        return chunks;
     }
 
     /**
@@ -1962,95 +2221,118 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
                         this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
                             crypto.randomUUID(), "DEBUG_DIGEST", `✅ PDF found: ${match.media.document.attributes?.find((a: any) => a.fileName)?.fileName || 'unknown.pdf'}`, Date.now());
 
-                        console.log(`[ContentRefinery] Processing PDF from ${item.source_name}...`);
+                        this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                            crypto.randomUUID(), "DEBUG_DIGEST", `⬇️ Starting PDF download for ${item.source_name}...`, Date.now());
+
                         const buffer = await tg.downloadMedia(match);
                         if (!buffer) {
-                            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                             this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
                                 crypto.randomUUID(), "DEBUG_DIGEST", `❌ Failed to download PDF buffer for ${item.source_name}`, Date.now());
-                            continue;
+                             continue;
+                        }
+
+                        let allSignals: any[] = [];
+                        const fileSizeMB = Math.round(buffer.byteLength / 1024 / 1024);
+
+                        // Strategy: Chunking for Large Files (>15MB) or Direct for Small
+                        let chunks: { buffer: Uint8Array, startPage: number, endPage: number }[] = [];
+                        
+                        if (fileSizeMB > 15) {
+                            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                                crypto.randomUUID(), "DEBUG_DIGEST", `📚 splitting large PDF (${fileSizeMB} MB) into chunks...`, Date.now());
+                            try {
+                                chunks = await this.splitPdf(buffer, 10); // 10 pages per chunk
+                            } catch (e: any) {
+                                this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                                    crypto.randomUUID(), "DEBUG_DIGEST", `❌ Split failed: ${e.message}`, Date.now());
+                                continue;
+                            }
+                        } else {
+                            chunks = [{ buffer: new Uint8Array(buffer), startPage: 1, endPage: 1000 }]; // Assume full doc if small
                         }
 
                         this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                            crypto.randomUUID(), "DEBUG_DIGEST", `🚀 Processing PDF (${Math.round(buffer.byteLength / 1024)} KB) from ${item.source_name}...`, Date.now());
+                            crypto.randomUUID(), "DEBUG_DIGEST", `🚀 Processing ${chunks.length} chunks...`, Date.now());
 
-                        let markdown: string | null = null;
-                        try {
-                            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                                crypto.randomUUID(), "DEBUG_DIGEST", `📝 Attempting Cloudflare toMarkdown conversion...`, Date.now());
+                        for (let i = 0; i < chunks.length; i++) {
+                            const chunk = chunks[i];
+                            const chunkBuffer = chunk.buffer;
+                            const chunkNum = i + 1;
                             
-                            const blob = new Blob([buffer], { type: 'application/pdf' });
-                            // env.AI.toMarkdown expects an object containing a blob
-                            const mdResult = await (this.env.AI as any).toMarkdown({ blob });
-                            
-                            if (mdResult && mdResult.text) {
-                                const text = mdResult.text as string;
-                                markdown = text;
-                                this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                                    crypto.randomUUID(), "DEBUG_DIGEST", `✅ toMarkdown Success (${text.length} chars)`, Date.now());
-                            } else if (mdResult && mdResult.data) {
-                                // Some versions return .data instead of .text
-                                markdown = mdResult.data as string;
-                                this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                                    crypto.randomUUID(), "DEBUG_DIGEST", `✅ toMarkdown Success (${markdown.length} chars)`, Date.now());
+                            let markdown: string | null = null;
+                            try {
+                                const blob = new Blob([chunkBuffer], { type: 'application/pdf' });
+                                const mdResult = await (this.env.AI as any).toMarkdown({ blob });
+                                if (mdResult?.text) markdown = mdResult.text;
+                                else if (mdResult?.data) markdown = mdResult.data;
+                            } catch (e) { /* ignore toMarkdown failure, fall to multimodal */ }
+
+                            let parts: any[] = [];
+                            if (markdown) {
+                                parts = [{ text: `PART ${chunkNum}/${chunks.length} of Newspaper (Pages ${chunk.startPage}-${chunk.endPage}). Extract investment signals/articles from this PART (Markdown):\n\n${markdown}` }];
+                            } else {
+                                // Multimodal Fallback for Chunk
+                                let binary = '';
+                                const bytes = chunkBuffer; // already Uint8Array
+                                for (let j = 0; j < bytes.byteLength; j += 32768) {
+                                    binary += String.fromCharCode(...bytes.subarray(j, j + 32768));
+                                }
+                                parts = [
+                                    { inlineData: { mimeType: "application/pdf", data: btoa(binary) } },
+                                    { text: `PART ${chunkNum}/${chunks.length} of Newspaper (Pages ${chunk.startPage}-${chunk.endPage}). Extract investment signals/articles from this PART.` }
+                                ];
                             }
-                        } catch (e: any) {
-                            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                                crypto.randomUUID(), "DEBUG_DIGEST", `⚠️ toMarkdown Fallback: ${e.message}`, Date.now());
+
+                            // 15-30 signals expectation per whole paper, so maybe 3-5 per chunk
+                            parts[parts.length - 1].text += `\n\nExtract DISTINCT investment signals. Return as JSON array.\n` +
+                                                            `CRITICAL: When verifying facts, you MUST cite the specific page number if found, e.g. "Net Income up 20% (Page ${chunk.startPage + 2})."`;
+
+                            try {
+                                const response = await fetch(
+                                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${this.env.GEMINI_API_KEY}`,
+                                    {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            contents: [{ role: 'user', parts }],
+                                            systemInstruction: { parts: [{ text: SYSTEM_PROMPT.replace("forensic fact-checking.", "forensic fact-checking. Cite Page Numbers e.g. (Page 12).") }] },
+                                            generationConfig: { temperature: 0.2, response_mime_type: "application/json" }
+                                        })
+                                    }
+                                );
+                                if (response.ok) {
+                                    const resStr = await response.text();
+                                    const resJson = JSON.parse(resStr) as any;
+                                    const outText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
+                                    if (outText) {
+                                        const chunkSignals = JSON.parse(outText);
+                                        if (Array.isArray(chunkSignals)) {
+                                             allSignals.push(...chunkSignals);
+                                             this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                                                crypto.randomUUID(), "DEBUG_DIGEST", `✅ Chunk ${chunkNum}: Extracted ${chunkSignals.length} signals`, Date.now());
+                                        }
+                                    }
+                                }
+                            } catch (e: any) {
+                                console.error(`Chunk ${chunkNum} failed:`, e);
+                            }
                         }
 
-                        let parts: any[] = [];
-                        if (markdown) {
-                            parts = [
-                                { text: `Following is a complete newspaper (Financial Times or Wall Street Journal) converted to Markdown format:\n\n${markdown}\n\nExtract EVERY DISTINCT investment signal, article, or market insight as a SEPARATE entry in your JSON array. I expect at least 15-30 signals from a full newspaper. Do NOT summarize the entire paper into one signal - each article, headline, or insight should be its own signal object. Be exhaustive.` }
-                            ];
-                        } else {
-                            // Multimodal fallback
-                            let binary = '';
-                            const bytes = new Uint8Array(buffer);
-                            for (let i = 0; i < bytes.byteLength; i += 32768) {
-                                binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
-                            }
-                            const b64 = btoa(binary);
-                            parts = [
-                                { inlineData: { mimeType: "application/pdf", data: b64 } },
-                                { text: "This is a complete newspaper (Financial Times or Wall Street Journal). Extract EVERY DISTINCT investment signal, article, or market insight as a SEPARATE entry in your JSON array. I expect at least 15-30 signals from a full newspaper. Do NOT summarize the entire paper into one signal - each article, headline, or insight should be its own signal object. Be exhaustive." }
-                            ];
+                        // Deduplicate signals by summary/content
+                        const uniqueSignals = new Map<string, any>();
+                        for (const s of allSignals) {
+                             const key = (s.summary || "").substring(0, 50).toLowerCase();
+                             if (!uniqueSignals.has(key)) uniqueSignals.set(key, s);
                         }
+                        const finalSignals = Array.from(uniqueSignals.values());
 
-                        const response = await fetch(
-                            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${this.env.GEMINI_API_KEY}`,
-                            {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    contents: [{
-                                        role: 'user',
-                                        parts
-                                    }],
-                                    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-                                    generationConfig: { temperature: 0.2, response_mime_type: "application/json" }
-                                })
-                            }
-                        );
-
-                        if (!response.ok) {
-                            const err = await response.text();
+                        if (finalSignals.length > 0) {
                             this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                                crypto.randomUUID(), "DEBUG_DIGEST", `❌ Gemini API Error: ${response.status} - ${err.substring(0, 200)}`, Date.now());
-                            continue;
-                        }
+                                crypto.randomUUID(), "DEBUG_DIGEST", `✨ Total Extracted: ${finalSignals.length} unique signals.`, Date.now());
 
-                        const result = await response.json() as any;
-                        const outputText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                            console.log(`[ContentRefinery] Extracted ${finalSignals.length} signals total.`);
 
-                        if (outputText) {
-                            const signals = JSON.parse(outputText);
-                            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                                crypto.randomUUID(), "DEBUG_DIGEST", `✨ Extracted ${signals.length} signals from PDF.`, Date.now());
-
-                            console.log(`[ContentRefinery] Extracted ${signals.length} signals from PDF.`);
-
-                            for (const signal of signals) {
+                            for (const signal of finalSignals) {
                                 if (signal.relevance_score > 40) {
                                     await this.notifySignal(signal, item.source_id, item.source_name);
                                     if (signal.relevance_score > 80) {
@@ -2059,10 +2341,10 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
                                 }
                             }
 
-                            this.ctx.storage.sql.exec("UPDATE content_items SET processed_json = ? WHERE id = ?", JSON.stringify({ pdf_processed: true, signal_count: signals.length }), item.id);
+                            this.ctx.storage.sql.exec("UPDATE content_items SET processed_json = ? WHERE id = ?", JSON.stringify({ pdf_processed: true, signal_count: finalSignals.length }), item.id);
                         } else {
-                            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                                crypto.randomUUID(), "DEBUG_DIGEST", `⚠️ No output from Gemini for ${item.source_name}`, Date.now());
+                             this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                                crypto.randomUUID(), "DEBUG_DIGEST", `⚠️ No signals extracted from ${item.source_name}`, Date.now());
                         }
                     } else {
                         this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",

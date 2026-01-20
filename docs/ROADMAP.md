@@ -40,6 +40,9 @@
     - **Forensic Fact-Checking**: Verifies claims against trusted sources.
     - **Epistemic Analysis**: Validates logical soundness and identifies biases.
     - **High-Conviction Pitch**: Synthesizes insights into a 10-sentence elevator pitch.
+39. [x] **Interactive Deep Activation (Bot)**:
+    - **Buttons**: Fact Check, Synthesis, Deep Dive, Graph attached to every signal.
+    - **Callback Handling**: Instant routing to detailed Epistemic prompts.
 5. [x] **Smart Filtering & Auto-Pruning**:
     - **Strict Scope**: Filters for Macro, Corporate, Crypto, Pitches, and Prediction Markets.
     - **Channel Hygiene**: Automatically ignores channels with >100 consecutive irrelevant messages.

@@ -1,6 +1,9 @@
 import { TelegramClient, Api } from "telegram";
+import { Button } from "telegram/tl/custom/button";
+import { Buffer } from "node:buffer";
 import { StringSession } from "telegram/sessions";
 import { NewMessage } from "telegram/events";
+import { CallbackQuery } from "telegram/events/CallbackQuery";
 
 /**
  * TelegramManager handles the MTProto lifecycle, including authentication,
@@ -198,6 +201,27 @@ export class TelegramManager {
             }
         }, new NewMessage({ incoming: true, outgoing: true }));
 
+
+
+        this.client?.addEventHandler(async (event: any) => {
+             // Handle Callback Queries (Button Clicks)
+             if (event.query) {
+                 const chatId = event.query.peer?.channelId?.toString() || event.query.peer?.userId?.toString();
+                 const data = event.query.data?.toString();
+                 const msgId = event.query.msgId;
+
+                 await onMessage({
+                     chatId,
+                     messageId: msgId,
+                     title: "Callback",
+                     text: `CALLBACK:${data}`, // Encode callback as text for easy routing in ContentDO
+                     isCallback: true,
+                     queryId: event.query.queryId,
+                     data: data
+                 });
+             }
+        }, new CallbackQuery());
+
         this.isListening = true;
     }
 
@@ -273,12 +297,18 @@ export class TelegramManager {
     }
 
     /**
-     * Sends a message to a specific peer.
+     * Sends a message to a specific peer with optional buttons.
      */
-    async sendMessage(chatId: string, text: string) {
+    async sendMessage(chatId: string, text: string, buttons?: any[]) {
         await this.connect();
         if (!this.client) return;
-        await this.client.sendMessage(chatId, { message: text, parseMode: "html" });
+        
+        let params: any = { message: text, parseMode: "html" };
+        if (buttons) {
+            params.buttons = buttons;
+        }
+        
+        await this.client.sendMessage(chatId, params);
     }
 
     /**
