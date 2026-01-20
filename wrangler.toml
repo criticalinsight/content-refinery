@@ -29,6 +29,7 @@ index_name = "refinery_signals"
 [ai]
 binding = "AI"
 
+
 [vars]
 # TELEGRAM_API_ID = "..." (set via secret)
 # TELEGRAM_API_HASH = "..." (set via secret)

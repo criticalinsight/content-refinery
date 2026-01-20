@@ -4,7 +4,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
     test: {
         environment: 'node',
-        include: ['src/**/*.epistemic.test.ts'],
+        include: ['src/**/*.test.ts'],
         setupFiles: [],
         deps: {
             optimizer: {
