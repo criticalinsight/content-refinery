@@ -1,12 +1,12 @@
 # Content Refinery - Telegram Roadmap
 
-**Current Version:** 2.0 (Autonomous Agent)  
+**Current Version:** 2.1 (Epistemic Engine)  
 **Vision:** Telegram-First Market Intelligence  
-**Last Updated:** 2026-01-19
+**Last Updated:** 2026-01-20
 
 ---
 
-## 🚀 Phase 16: Deep Telegram Integration
+## 🚀 Phase 16: Deep Telegram Integration ✅
 *Objective: Make Telegram the primary command center for the Refinery.*
 
 2. [x] **Daily Briefing Agent**: Scheduled cron job to generate AM/PM summaries sent to https://t.me/highsignalalpha (ID: -1003589267081).
@@ -24,7 +24,7 @@
 
 ---
 
-## 🧠 Phase 17: Knowledge & Visualization (Current)
+## 🧠 Phase 17: Knowledge & Visualization ✅
 *Objective: Turn raw signals into a structured Knowledge Graph and visualize it.*
 
 1. [x] **Relational Knowledge Graph**:
@@ -36,16 +36,35 @@
 3. [x] **Backfill & Historical Processing**:
     - Ability to ingest historical Telegram messages for context.
     - `/admin/backfill` endpoint implemented.
-4. [x] **Enhanced Analyst Persona** (Senior Equity Analyst):
+4. [x] **Epistemic Analyst Prompt**:
     - **Forensic Fact-Checking**: Verifies claims against trusted sources.
     - **Epistemic Analysis**: Validates logical soundness and identifies biases.
     - **High-Conviction Pitch**: Synthesizes insights into a 10-sentence elevator pitch.
-39. [x] **Interactive Deep Activation (Bot)**:
+5. [x] **Interactive Deep Activation (Bot)**:
     - **Buttons**: Fact Check, Synthesis, Deep Dive, Graph attached to every signal.
     - **Callback Handling**: Instant routing to detailed Epistemic prompts.
-5. [x] **Smart Filtering & Auto-Pruning**:
+6. [x] **Smart Filtering & Auto-Pruning**:
     - **Strict Scope**: Filters for Macro, Corporate, Crypto, Pitches, and Prediction Markets.
     - **Channel Hygiene**: Automatically ignores channels with >100 consecutive irrelevant messages.
+7. [x] **Comprehensive Testing**:
+    - 18 unit tests passing (Vitest).
+    - Coverage: Core Logic, Epistemic Engine, RSS Parsing, Error Logging.
+
+---
 
 ## 🔮 Phase 18: Predictive Alpha (Next)
 *Objective: Scoring and ranking assets based on graph centrality and sentiment.*
+
+1. [ ] **Centrality Scoring**:
+    - PageRank/Eigenvector centrality on Knowledge Graph.
+    - Identify most-connected entities.
+2. [ ] **Sentiment Aggregation**:
+    - Aggregate signal sentiments per ticker/entity over time.
+    - Detect sentiment shifts and momentum.
+3. [ ] **Predictive Signals**:
+    - Generate "Conviction Scores" based on graph + sentiment.
+    - Alert on significant momentum changes.
+4. [ ] **Backtesting Framework**:
+    - Historical signal accuracy tracking.
+    - Performance reports for analyst predictions.
+

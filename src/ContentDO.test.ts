@@ -21,6 +21,7 @@ vi.mock('./telegram', () => {
         TelegramManager: vi.fn().mockImplementation(() => ({
             connect: vi.fn().mockResolvedValue('test-session'),
             isLoggedIn: vi.fn().mockResolvedValue(true),
+            sendMessage: vi.fn(),
             listen: vi.fn(),
             getClient: vi.fn().mockReturnValue({ connected: true })
         }))
@@ -49,11 +50,14 @@ describe('ContentDO', () => {
                 exec: vi.fn().mockReturnValue({ toArray: () => [], one: () => null })
             },
             put: vi.fn(),
-            get: vi.fn()
+            get: vi.fn(),
+            setAlarm: vi.fn(),
+            getAlarm: vi.fn().mockResolvedValue(null)
         };
         mockState = {
             storage: mockStorage,
-            getWebSockets: () => []
+            getWebSockets: () => [],
+            blockConcurrencyWhile: async (cb: any) => await cb()
         };
         contentDO = new ContentDO(mockState, mockEnv as any);
     });
