@@ -1,17 +1,11 @@
-# Tasks
-
-## Phase 17: Knowledge & Visualization ✅
-*Completed 2026-01-20*
-
-- [x] Epistemic Analyst Prompt
-- [x] Interactive Deep Activation (Buttons)
-- [x] Comprehensive Testing (18 tests)
-- [x] Documentation Update
-
-## Phase 18: Predictive Alpha (Next)
-*Objective: Scoring and ranking assets based on graph centrality and sentiment.*
-
-- [ ] Centrality Scoring (PageRank)
-- [ ] Sentiment Aggregation
-- [ ] Predictive "Conviction Scores"
-- [ ] Backtesting Framework
+- [x] verify ralph-nano installation
+- [x] Decomplection Phase A: Logic Extraction
+    - [x] Create directory structure (`src/api`, `src/collectors`)
+    - [x] Implement `FactStore.ts`
+    - [x] Implement `Router.ts`
+    - [x] Implement `TelegramCollector.ts`
+    - [x] Refactor `ContentDO.ts` to use new modules
+- [x] Decomplection Phase B: Data-Orientation
+    - [x] Define strict `Signal` and `Entity` types
+    - [x] Update `FactStore` with type safety
+    - [x] Refactor `ContentDO` to use strict types

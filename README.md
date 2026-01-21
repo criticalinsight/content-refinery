@@ -36,6 +36,7 @@ npm run deploy
 
 - [Product Requirements](./docs/PRD.md)
 - [Roadmap](./docs/ROADMAP.md)
+- [Architecture & Design](./docs/ARCHITECTURE.md)
 - [Technical Specs](./docs/specs/)
 
 ## Stack

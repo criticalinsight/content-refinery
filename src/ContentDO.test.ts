@@ -122,7 +122,7 @@ describe('ContentDO', () => {
             const request = new Request('https://api.test/health');
             const response = await contentDO.fetch(request);
             const data = await response.json() as any;
-            expect(data.status).toBe('healthy');
+            expect(data.status).toBe('online');
         });
 
         test('/signals/search applies rate limiting', async () => {

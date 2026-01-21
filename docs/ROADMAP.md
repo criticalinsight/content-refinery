@@ -68,3 +68,44 @@
     - Historical signal accuracy tracking.
     - Performance reports for analyst predictions.
 
+
+---
+
+
+---
+
+
+---
+
+## 🔮 Phase 19: The "Ghost" Analyst (Simulation & Logic)
+*Objective: Active reasoning and hypothesis testing.*
+
+1. [ ] **Scenario Simulator**:
+    - User asks "What happens if Oil hits $100?".
+    - Bot traverses the Knowledge Graph to find 2nd and 3rd order effects on current holdings.
+2. [ ] **Thesis Stress-Test (Red Teaming)**:
+    - User posts a trade thesis.
+    - Bot acts as a "Devil's Advocate," citing specific contradictions from the signal database.
+
+---
+
+## 📱 Phase 20: The "War Room" (Telegram Mini App)
+*Objective: Rich interaction without leaving the chat.*
+
+1. [ ] **Graph Explorer Mini-App**:
+    - Launch a full React-based Knowledge Graph visualization directly inside Telegram (Web App).
+    - Tap nodes to see underlying signals.
+2. [ ] **Timeline Scrubber**:
+    - Visual interface to scrub through the history of a narrative (e.g., "AI Regulation" over the last 6 months).
+
+---
+
+## 🧠 Phase 21: Second Brain Integration
+*Objective: Your knowledge, owned by you.*
+
+1. [ ] **Obsidian/Notion Sync**:
+    - Auto-export "Verified" signals as markdown files to a user's private repo/Notion.
+    - Creates a "Daily Notes" page with the day's Alpha.
+2. [ ] **Dynamic Feed Mesh**:
+    - User adds *any* RSS/Substack URL via chat command `/monitor <url>`.
+    - Refinery ingests it as a new high-priority source.

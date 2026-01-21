@@ -23,7 +23,6 @@ vi.mock('./telegram', () => {
         TelegramManager: vi.fn().mockImplementation(() => ({
             connect: vi.fn().mockResolvedValue('test-session'),
             isLoggedIn: vi.fn().mockResolvedValue(true),
-            isLoggedIn: vi.fn().mockResolvedValue(true),
             sendMessage: mockSendMessage,
             listen: vi.fn(),
             getClient: vi.fn().mockReturnValue({ connected: true })
@@ -51,7 +50,7 @@ describe('ContentDO Epistemic & Buttons', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockSqlExec = vi.fn();
-        
+
         const mockStorage = {
             sql: { exec: mockSqlExec },
             put: vi.fn(),
@@ -59,9 +58,9 @@ describe('ContentDO Epistemic & Buttons', () => {
             setAlarm: vi.fn(),
             getAlarm: vi.fn().mockResolvedValue(null)
         };
-        
-        contentDO = new ContentDO({ 
-            storage: mockStorage, 
+
+        contentDO = new ContentDO({
+            storage: mockStorage,
             getWebSockets: () => [],
             blockConcurrencyWhile: async (callback: any) => await callback()
         } as any, mockEnv as any);
@@ -71,7 +70,7 @@ describe('ContentDO Epistemic & Buttons', () => {
         test('routes "chk" (Fact Check) correctly', async () => {
             // Setup DB mock to return a signal
             mockSqlExec.mockReturnValue({ toArray: () => [{ id: '123', raw_text: 'Test Content', source_name: 'Test Source' }] });
-            
+
             // Mock Gemini response
             globalFetch.mockResolvedValue({
                 json: async () => ({ candidates: [{ content: { parts: [{ text: 'Fact Check Result' }] } }] })
@@ -92,7 +91,7 @@ describe('ContentDO Epistemic & Buttons', () => {
 
             // Verify loading message
             expect(mockSendMessage).toHaveBeenCalledWith('999', expect.stringContaining('Running <b>🔎 FACT CHECK'));
-            
+
             // Verify Gemini called with correct prompt identifier (part of the prompt text)
             expect(globalFetch).toHaveBeenCalledWith(
                 expect.stringContaining('generativelanguage.googleapis.com'),

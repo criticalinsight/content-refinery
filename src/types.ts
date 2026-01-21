@@ -11,16 +11,46 @@ export interface Env {
     VAPID_PRIVATE_KEY: string;
 }
 
+export interface Signal {
+    summary: string;
+    relevance_score: number;
+    sentiment: 'positive' | 'negative' | 'neutral';
+    tickers: string[];
+    analysis: string;
+    fact_check?: string;
+    is_urgent?: boolean;
+    confidence?: number;
+}
+
+export interface Entity {
+    name: string;
+    type: 'company' | 'person' | 'location' | 'crypto';
+    sentiment: number; // -1.0 to 1.0
+}
+
+export interface Narrative {
+    title: string;
+    description: string;
+    related_signals: string[]; // Signal IDs
+    coherence_score: number;
+}
+
 export interface ContentItem {
     id: string;
     source_id: string;
     source_name: string;
     raw_text: string;
-    processed_json?: any;
+    processed_json?: Signal | null; // Strict typing
     sentiment?: string;
     is_signal: number;
     retry_count: number;
     last_error?: string;
     created_at: number;
-    metadata?: Record<string, any>; // For Phase 2: Tweet IDs, RSS links, etc.
+    metadata?: {
+        content_hash?: string;
+        tags?: string[];
+        privacy?: 'public' | 'encrypted';
+        platform?: 'telegram' | 'rss' | 'webhook';
+        url?: string;
+    };
 }

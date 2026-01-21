@@ -1,11 +1,14 @@
 import { DurableObject } from 'cloudflare:workers';
-import { Env } from './types';
+import { Env, Signal } from './types';
 import { TelegramManager } from './telegram';
 import { fetchAndParseRSS } from './utils/rss';
 import { ErrorLogger } from './ErrorLogger';
 import { PDFDocument } from 'pdf-lib';
 import { Button } from "telegram/tl/custom/button";
 import { Buffer } from "node:buffer";
+import { FactStore } from './FactStore';
+import { Router } from './api/Router';
+import { TelegramCollector } from './collectors/TelegramCollector';
 
 interface ChannelConfig {
     id: string; // Telegram Chat ID
@@ -23,8 +26,10 @@ interface ChannelConfig {
  */
 export class ContentDO extends DurableObject<Env> {
 
-    private telegram: TelegramManager | null = null;
     private logger: ErrorLogger;
+    private store: FactStore;
+    private router: Router;
+    private telegram: TelegramCollector;
 
     // In-memory caches (v1.7)
     private signalCache: { data: any, timestamp: number } | null = null;
@@ -38,12 +43,17 @@ export class ContentDO extends DurableObject<Env> {
 
     constructor(ctx: DurableObjectState, public env: Env) {
         super(ctx, env);
+        this.store = new FactStore(this.ctx.storage);
+        this.router = new Router(this.store, this.env);
         this.logger = new ErrorLogger(this.ctx.storage);
+        this.telegram = new TelegramCollector(this.env, this.ctx.storage, this.store, this.logger);
 
         // Robust async initialization
         this.ctx.blockConcurrencyWhile(async () => {
             this.migrateSchema();
-            await this.resumeTelegramSession();
+            await this.telegram.setupListener(async (msg) => {
+                await this.handleIngestInternal(msg);
+            });
             await this.scheduleNextMaintenance();
         });
     }
@@ -59,59 +69,6 @@ export class ContentDO extends DurableObject<Env> {
         }
     }
 
-    private async resumeTelegramSession() {
-        try {
-            const sessionStr = await this.ctx.storage.get<string>('tg_session');
-            if (sessionStr) {
-                const tg = await this.ensureTelegram();
-                if (await tg.isLoggedIn()) {
-                    console.log("[ContentRefinery] Telegram session auto-resumed on startup.");
-                } else {
-                    console.warn("[ContentRefinery] Resumed session is invalid. Re-auth required.");
-                }
-            }
-        } catch (e) {
-            console.error("[ContentRefinery] Failed to auto-resume Telegram:", e);
-        }
-    }
-
-    private async ensureTelegram(): Promise<TelegramManager> {
-        if (this.telegram && this.telegram.getClient()?.connected) {
-            const loggedIn = await this.telegram.isLoggedIn();
-            if (loggedIn) return this.telegram;
-        }
-
-        const sessionStr = await this.ctx.storage.get<string>('tg_session') || "";
-        this.telegram = new TelegramManager(this.env, this.ctx.storage, sessionStr, async (newSession) => {
-            if (newSession) {
-                await this.ctx.storage.put('tg_session', newSession);
-                console.log("[ContentRefinery] Telegram session updated and persisted.");
-            }
-        });
-
-        try {
-            await this.telegram.connect();
-
-            if (await this.telegram.isLoggedIn()) {
-                this.telegram.listen(async (msg) => {
-                    await this.handleIngestInternal(msg);
-                });
-                console.log("[ContentRefinery] Live Telegram listener resumed.");
-
-                // Phase 16: Admin Alerts
-                this.logger.setNotifyCallback(async (module, message) => {
-                    const ADMIN_ID = "-1003589267081";
-                    const alertMsg = `🚨 <b>SYSTEM ALERT</b>\n<b>Module:</b> ${module}\n<b>Error:</b> ${message}\n<i>Refinery is continuing with reduced capacity.</i>`;
-                    await this.telegram?.sendMessage(ADMIN_ID, alertMsg);
-                });
-            }
-        } catch (e) {
-            console.error("[ContentRefinery] ensureTelegram failed:", e);
-            throw e;
-        }
-
-        return this.telegram;
-    }
 
     /**
      * migrates the SQLite schema to the latest version.
@@ -279,6 +236,12 @@ export class ContentDO extends DurableObject<Env> {
         }
         const url = new URL(request.url);
 
+        // PRIMARY DECOMPLECTION: Delegate to Router
+        const routerResponse = await this.router.handle(request);
+        if (routerResponse.status !== 404) {
+            return this.addCors(routerResponse);
+        }
+
         let response: Response;
 
         if (url.pathname === '/health' || url.pathname === '/stats') {
@@ -321,11 +284,7 @@ export class ContentDO extends DurableObject<Env> {
     private async handleTelegramAuth(request: Request, url: URL): Promise<Response> {
         if (url.pathname === '/telegram/auth/logout' && request.method === 'POST') {
             await this.ctx.storage.delete('tg_session');
-            if (this.telegram) {
-                // Ensure properly disconnected if possible
-                try { await this.telegram.getClient()?.disconnect(); } catch (e) { }
-                this.telegram = null;
-            }
+            await this.telegram.resetSession();
             return Response.json({ success: true, message: 'Telegram session cleared. Re-auth via QR required.' });
         }
 
@@ -333,8 +292,7 @@ export class ContentDO extends DurableObject<Env> {
             const { session } = await request.json() as any;
             if (!session) return this.sendError('Missing session string');
             await this.ctx.storage.put('tg_session', session);
-            this.telegram = null; // Force recreation on next ensureTelegram
-            const tg = await this.ensureTelegram();
+            const tg = await this.telegram.ensureConnection();
             const loggedIn = await tg.isLoggedIn();
             return Response.json({ success: true, status: loggedIn ? 'online' : 'offline', message: 'Session string restored.' });
         }
@@ -344,7 +302,7 @@ export class ContentDO extends DurableObject<Env> {
                 return this.sendError('TELEGRAM_API_ID and TELEGRAM_API_HASH must be set as secrets.', 500, { status: 'unconfigured' });
             }
             try {
-                const tg = await this.ensureTelegram();
+                const tg = await this.telegram.ensureConnection();
                 const loggedIn = await tg.isLoggedIn();
                 return Response.json({ status: loggedIn ? 'online' : 'offline' });
             } catch (e) {
@@ -354,7 +312,7 @@ export class ContentDO extends DurableObject<Env> {
 
         if (url.pathname === '/telegram/auth/send-code' && request.method === 'POST') {
             const { phone } = await request.json() as any;
-            const tg = await this.ensureTelegram();
+            const tg = await this.telegram.ensureConnection();
             try {
                 const phoneCodeHash = await tg.sendCode(phone);
                 await this.ctx.storage.put('tg_phone', phone);
@@ -372,7 +330,7 @@ export class ContentDO extends DurableObject<Env> {
 
             if (!phone || !phoneCodeHash) return this.sendError('No pending sign-in. Call send-code first.');
 
-            const tg = await this.ensureTelegram();
+            const tg = await this.telegram.ensureConnection();
             try {
                 let newSession = password ? await tg.checkPassword(password) : await tg.signIn(phone, phoneCodeHash, code);
                 await this.ctx.storage.put('tg_session', newSession);
@@ -386,7 +344,7 @@ export class ContentDO extends DurableObject<Env> {
 
         if (url.pathname === '/telegram/auth/me' && request.method === 'GET') {
             try {
-                const tg = await this.ensureTelegram();
+                const tg = await this.telegram.ensureConnection();
                 const client = tg.getClient();
                 if (!client || !await tg.isLoggedIn()) return Response.json({ loggedIn: false });
                 const me = await client.getMe();
@@ -400,7 +358,7 @@ export class ContentDO extends DurableObject<Env> {
         }
 
         if (url.pathname === '/telegram/auth/qr-token') {
-            const tg = await this.ensureTelegram();
+            const tg = await this.telegram.ensureConnection();
             try {
                 const tokenData = await tg.getQrLoginToken();
                 return Response.json({ success: true, ...tokenData });
@@ -410,7 +368,7 @@ export class ContentDO extends DurableObject<Env> {
         }
 
         if (url.pathname === '/telegram/auth/qr-check') {
-            const tg = await this.ensureTelegram();
+            const tg = await this.telegram.ensureConnection();
             try {
                 const result = await tg.checkQrLogin();
                 if (result.success && result.session) {
@@ -427,7 +385,7 @@ export class ContentDO extends DurableObject<Env> {
         if (url.pathname === '/telegram/auth/qr-password') {
             const { password } = await request.json() as any;
             if (!password) return this.sendError('Password required');
-            const tg = await this.ensureTelegram();
+            const tg = await this.telegram.ensureConnection();
             try {
                 const newSession = await tg.checkPassword(password);
                 await this.ctx.storage.put('tg_session', newSession);
@@ -500,7 +458,7 @@ export class ContentDO extends DurableObject<Env> {
 
             // Get total count
             let countSql = `SELECT COUNT(*) as total FROM content_items WHERE is_signal = 1`;
-            const total = (this.ctx.storage.sql.exec(countSql).one() as any)?.total || 0;
+            const total = (this.ctx.storage.sql.exec(countSql).toArray()[0] as any)?.total || 0;
 
             const responseData = {
                 signals: signals.map((s: any) => ({
@@ -550,7 +508,7 @@ export class ContentDO extends DurableObject<Env> {
 
             const total = (this.ctx.storage.sql.exec(
                 `SELECT COUNT(*) as total FROM content_items WHERE is_signal = 1`
-            ).one() as any)?.total || 0;
+            ).toArray()[0] as any)?.total || 0;
 
             return Response.json({
                 signals: signals.map((s: any) => ({
@@ -866,8 +824,8 @@ export class ContentDO extends DurableObject<Env> {
     private handleHealthStats(request: Request, url: URL): Response {
         if (url.pathname === '/health') return Response.json({ status: 'healthy', timestamp: new Date().toISOString() });
 
-        const total = (this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items').one() as any)?.cnt || 0;
-        const signals = (this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items WHERE is_signal = 1').one() as any)?.cnt || 0;
+        const total = (this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items').toArray()[0] as any)?.cnt || 0;
+        const signals = (this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items WHERE is_signal = 1').toArray()[0] as any)?.cnt || 0;
         return Response.json({ totalItems: total, signals, timestamp: new Date().toISOString() });
     }
 
@@ -887,7 +845,7 @@ export class ContentDO extends DurableObject<Env> {
 
             if (source_id) {
                 if (dry_run) {
-                    const count = this.ctx.storage.sql.exec('SELECT COUNT(*) as c FROM content_items WHERE source_id = ?', source_id).one() as any;
+                    const count = this.ctx.storage.sql.exec('SELECT COUNT(*) as c FROM content_items WHERE source_id = ?', source_id).toArray()[0] as any;
                     deleted = count?.c || 0;
                 } else {
                     this.ctx.storage.sql.exec('DELETE FROM content_items WHERE source_id = ?', source_id);
@@ -897,8 +855,8 @@ export class ContentDO extends DurableObject<Env> {
                 }
             } else if (keyword) {
                 if (dry_run) {
-                    const count = this.ctx.storage.sql.exec('SELECT COUNT(*) as c FROM content_items WHERE raw_text LIKE ?', `%${keyword}%`).one() as any;
-            this.ctx.storage.sql.exec('DELETE FROM content_items WHERE raw_text LIKE ?', `%${keyword}%`);
+                    const count = this.ctx.storage.sql.exec('SELECT COUNT(*) as c FROM content_items WHERE raw_text LIKE ?', `%${keyword}%`).toArray()[0] as any;
+                    this.ctx.storage.sql.exec('DELETE FROM content_items WHERE raw_text LIKE ?', `%${keyword}%`);
                     deleted = 1;
                 }
             } else {
@@ -924,7 +882,7 @@ export class ContentDO extends DurableObject<Env> {
 
         if (url.pathname === '/admin/backfill' && request.method === 'POST') {
             const { limit = 100, chatId } = await request.json() as any;
-            const tg = await this.ensureTelegram();
+            const tg = await this.telegram.ensureConnection();
 
             let count = 0;
             if (chatId) {
@@ -976,8 +934,15 @@ export class ContentDO extends DurableObject<Env> {
         if (url.pathname === '/admin/reflect') { await this.reflect(); return Response.json({ success: true }); }
         if (url.pathname === '/admin/digest') {
             const reqBody = await request.clone().json().catch(() => ({})) as any;
-            const result = await this.generateFinancialDigest(reqBody.sourceIds);
-            return Response.json(result);
+
+            // Phase 17: Background Processing for Large PDFs
+            // Use waitUntil to ensure process finishes even if response is returned
+            this.ctx.waitUntil((async () => {
+                console.log(`[ContentRefinery] Starting background digest for ${reqBody.sourceIds?.length || 'all'} items...`);
+                await this.generateFinancialDigest(reqBody.sourceIds);
+            })());
+
+            return Response.json({ status: "accepted", message: "Background processing started. Check internal_errors for progress." }, { status: 202 });
         }
 
 
@@ -1022,7 +987,7 @@ export class ContentDO extends DurableObject<Env> {
 
         // 2. Filter via Settings (NSFW / Blocked)
         try {
-            const row = this.ctx.storage.sql.exec("SELECT value FROM settings WHERE key = 'sensitive_keywords'").one() as any;
+            const row = this.ctx.storage.sql.exec("SELECT value FROM settings WHERE key = 'sensitive_keywords'").toArray()[0] as any;
             const keywords = row ? JSON.parse(row.value) : ["nsfw", "porn", "xxx", "child abuse", "scam"];
             if (Array.isArray(keywords)) {
                 for (const word of keywords) {
@@ -1073,7 +1038,7 @@ export class ContentDO extends DurableObject<Env> {
                     text = (text ? text + '\n' : '') + "[PDF DOCUMENT]";
                 } else {
                     // Only download if it's NOT a PDF (e.g. Image/Audio)
-                    const tg = await this.ensureTelegram();
+                    const tg = await this.telegram.ensureConnection();
                     const buffer = await tg.downloadMedia(body.media);
                     if (buffer) {
                         const mediaDetails = JSON.stringify({
@@ -1164,9 +1129,9 @@ export class ContentDO extends DurableObject<Env> {
 
         switch (command) {
             case '/status': {
-                const totalItems = (this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items').one() as any)?.cnt || 0;
-                const signals = (this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items WHERE is_signal = 1').one() as any)?.cnt || 0;
-                const channels = (this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM channels').one() as any)?.cnt || 0;
+                const totalItems = (this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items').toArray()[0] as any)?.cnt || 0;
+                const signals = (this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items WHERE is_signal = 1').toArray()[0] as any)?.cnt || 0;
+                const channels = (this.ctx.storage.sql.exec('SELECT COUNT(*) as cnt FROM channels').toArray()[0] as any)?.cnt || 0;
                 return `📊 Status: ${totalItems} items, ${signals} signals, ${channels} channels`;
             }
 
@@ -1174,7 +1139,7 @@ export class ContentDO extends DurableObject<Env> {
                 if (args.length < 2) return '❌ Usage: /add <name> <url>';
                 const name = args[0];
                 const url = args.slice(1).join(' ');
-                
+
                 this.ctx.storage.sql.exec(
                     'INSERT INTO sources (id, name, type, url, created_at) VALUES (?, ?, ?, ?, ?)',
                     crypto.randomUUID(), name, 'rss', url, Date.now()
@@ -1236,7 +1201,7 @@ export class ContentDO extends DurableObject<Env> {
                     );
                     const result = await response.json() as any;
                     const answer = result.candidates?.[0]?.content?.parts?.[0]?.text || "Failed to synthesize answer.";
-                    
+
                     return `🧠 <b>Deep Dive: ${query}</b>\n\n${answer}\n\n<i>Sources: ${searchRes.matches.length} signals invoked.</i>`;
                 } catch (e) {
                     return `❌ Analysis failed: ${String(e)}`;
@@ -1485,7 +1450,7 @@ Constraint: Return strictly valid JSON.
                 this.ctx.storage.sql.exec('UPDATE channels SET consecutive_irrelevant = consecutive_irrelevant + ? WHERE id = ?', items.length, sourceId);
 
                 // Check if we should prune
-                const chan = this.ctx.storage.sql.exec('SELECT consecutive_irrelevant FROM channels WHERE id = ?', sourceId).one() as any;
+                const chan = this.ctx.storage.sql.exec('SELECT consecutive_irrelevant FROM channels WHERE id = ?', sourceId).toArray()[0] as any;
                 if (chan && chan.consecutive_irrelevant >= 100) {
                     console.log(`[ContentRefinery] Pruning channel ${sourceId} due to ${chan.consecutive_irrelevant} irrelevant messages.`);
                     this.ctx.storage.sql.exec("UPDATE channels SET status = 'ignored' WHERE id = ?", sourceId);
@@ -1506,7 +1471,7 @@ Constraint: Return strictly valid JSON.
         if (pending.cnt > 0) await this.ctx.storage.setAlarm(Date.now() + 2000);
     }
 
-    private async notifySignal(intel: any, sourceId: string, sourceName: string) {
+    private async notifySignal(intel: Signal, sourceId: string, sourceName: string) {
         if (!this.env.BOARD_DO_URL) {
             console.warn('[ContentRefinery] BOARD_DO_URL not configured. Signal not forwarded.');
             return;
@@ -1556,18 +1521,18 @@ Constraint: Return strictly valid JSON.
         }
     }
 
-    private broadcastSignal(intel: any, sourceId: string, sourceName: string) {
+    private broadcastSignal(intel: Signal, sourceId: string, sourceName: string) {
         const payload = JSON.stringify({ type: 'signal', data: { intel, sourceId, sourceName, timestamp: Date.now() } });
         this.ctx.getWebSockets().forEach(ws => {
             try { ws.send(payload); } catch (e) { }
         });
     }
 
-    private async upsertToVectorize(intel: any) {
+    private async upsertToVectorize(intel: Signal) {
         if (!this.env.VECTOR_INDEX) return;
 
         try {
-            const textToEmbed = `${intel.summary} ${intel.detail}`;
+            const textToEmbed = `${intel.summary} ${intel.analysis}`;
             const embedding = await this.getEmbeddings(textToEmbed);
 
             await this.env.VECTOR_INDEX.upsert([{
@@ -1663,7 +1628,7 @@ Constraint: Return strictly valid JSON.
         try {
             if (!this.env.AI) return null;
             // truncate to avoid token limits (approx 512 tokens)
-            const input = text.substring(0, 1000); 
+            const input = text.substring(0, 1000);
             const result = await this.env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [input] });
             return result.data[0];
         } catch (e) {
@@ -1843,9 +1808,9 @@ Constraint: Return strictly valid JSON.
     private async handleCallback(data: string, chatId: string, messageId: number) {
         const [action, id] = data.split(':');
         const item = this.ctx.storage.sql.exec("SELECT * FROM content_items WHERE id = ?", id).toArray()[0] as any;
-        
+
         if (!item) {
-            const tg = await this.ensureTelegram();
+            const tg = await this.telegram.ensureConnection();
             await tg.sendMessage(chatId, "❌ Signal not found or expired.");
             return;
         }
@@ -1888,7 +1853,7 @@ OUTPUT FORMAT:
                 return;
         }
 
-        const tg = await this.ensureTelegram();
+        const tg = await this.telegram.ensureConnection();
         await tg.sendMessage(chatId, `⏳ Running <b>${label}</b>...`);
 
         try {
@@ -1905,7 +1870,7 @@ OUTPUT FORMAT:
 
             const result = await response.json() as any;
             const analysis = result.candidates?.[0]?.content?.parts?.[0]?.text;
-            
+
             if (analysis) {
                 await tg.sendMessage(chatId, `<b>${label}</b>\n\n${analysis}`);
             } else {
@@ -2046,7 +2011,7 @@ OUTPUT FORMAT:
             message += `💡 <i>Tip: Use /status in DM to check system health.</i>`;
 
             // 3. Send to Telegram
-            const tg = await this.ensureTelegram();
+            const tg = await this.telegram.ensureConnection();
             await tg.sendMessage(ALPHA_CHANNEL, message);
             console.log(`[ContentRefinery] Daily briefing sent to ${ALPHA_CHANNEL}`);
 
@@ -2063,39 +2028,60 @@ OUTPUT FORMAT:
         const ALPHA_CHANNEL = "-1003589267081";
 
         this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-             crypto.randomUUID(), "DEBUG_TELEGRAM", `Attempting to mirror signal: ${intel.summary.substring(0, 50)}... Score: ${intel.relevance_score}`, Date.now());
+            crypto.randomUUID(), "DEBUG_TELEGRAM", `Attempting to mirror signal: ${(intel.summary || "").substring(0, 50)}... Score: ${intel.relevance_score}`, Date.now());
 
         if (intel.relevance_score < 80) {
-             this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                 crypto.randomUUID(), "DEBUG_TELEGRAM", `Skipping mirror: Score ${intel.relevance_score} < 80`, Date.now());
-             return;
+            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                crypto.randomUUID(), "DEBUG_TELEGRAM", `Skipping mirror: Score ${intel.relevance_score} < 80`, Date.now());
+            return;
         }
 
         try {
-            const message = `🚨 <b>Create Signal</b>\n\n` +
-                `<b>Headline:</b> ${intel.summary.substring(0, 100)}...\n` +
+            // Generate ID if missing and store in DB for callback button routing
+            const signalId = intel.id || crypto.randomUUID();
+
+            // Store the signal in content_items so callback buttons can find it
+            this.ctx.storage.sql.exec(
+                `INSERT OR REPLACE INTO content_items (id, source_id, source_name, raw_text, processed_json, is_signal, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)`,
+                signalId,
+                sourceId,
+                sourceName,
+                intel.summary || "",
+                JSON.stringify(intel),
+                Date.now()
+            );
+
+            // Safely handle potentially undefined fields
+            const summary = intel.summary || "No summary available";
+            const analysis = intel.analysis || "Analysis pending";
+            const tickers = Array.isArray(intel.tickers) && intel.tickers.length > 0
+                ? intel.tickers
+                : ["MACRO"];
+
+            const message = `🚨 <b>Alpha Signal</b>\n\n` +
+                `<b>Headline:</b> ${summary.substring(0, 100)}${summary.length > 100 ? '...' : ''}\n` +
                 `<b>Relevance:</b> ${intel.relevance_score}/100\n` +
                 `<b>Source:</b> ${sourceName}\n\n` +
-                `<i>${intel.analysis.substring(0, 200)}...</i>\n\n` +
-                `#${intel.tickers.join(' #')} #Alpha`;
+                `<i>${analysis.substring(0, 200)}${analysis.length > 200 ? '...' : ''}</i>\n\n` +
+                `#${tickers.join(' #')} #Alpha`;
 
-            const tg = await this.ensureTelegram();
+            const tg = await this.telegram.ensureConnection();
             const buttons = [
                 [
-                    Button.inline("🔎 Fact Check", Buffer.from(`chk:${intel.id}`)),
-                    Button.inline("⚡ Synthesis", Buffer.from(`syn:${intel.id}`))
+                    Button.inline("🔎 Fact Check", Buffer.from(`chk:${signalId}`)),
+                    Button.inline("⚡ Synthesis", Buffer.from(`syn:${signalId}`))
                 ],
                 [
-                    Button.inline("🧠 Deep Dive", Buffer.from(`div:${intel.id}`)),
-                    Button.inline("🕸️ Graph", Buffer.from(`grf:${intel.id}`))
+                    Button.inline("🧠 Deep Dive", Buffer.from(`div:${signalId}`)),
+                    Button.inline("🕸️ Graph", Buffer.from(`grf:${signalId}`))
                 ]
             ];
 
             await tg.sendMessage(ALPHA_CHANNEL, message, buttons);
-            
+
             this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
                 crypto.randomUUID(), "DEBUG_TELEGRAM", `✅ Signal mirrored to ${ALPHA_CHANNEL}`, Date.now());
-                
+
             console.log(`[ContentRefinery] Signal mirrored to ${ALPHA_CHANNEL}`);
         } catch (e: any) {
             this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
@@ -2103,6 +2089,7 @@ OUTPUT FORMAT:
             console.error('[ContentRefinery] Failed to mirror signal:', e);
         }
     }
+
 
     /**
      * Helper to split a large PDF into smaller chunks.
@@ -2128,12 +2115,12 @@ OUTPUT FORMAT:
             const copiedPages = await subDoc.copyPages(pdfDoc, pageIndices);
             copiedPages.forEach(page => subDoc.addPage(page));
             const chunkBytes = await subDoc.save();
-            
+
             // i is 0-indexed, so page 1 is i+1
-            chunks.push({ 
-                buffer: chunkBytes, 
-                startPage: i + 1, 
-                endPage: Math.min(i + maxPages, totalPages) 
+            chunks.push({
+                buffer: chunkBytes,
+                startPage: i + 1,
+                endPage: Math.min(i + maxPages, totalPages)
             });
         }
         return chunks;
@@ -2186,7 +2173,7 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
 
             if (items.length === 0) return { success: false, message: 'No PDFs found' };
 
-            const tg = await this.ensureTelegram();
+            const tg = await this.telegram.ensureConnection();
 
             for (const item of items) {
                 if (!item.source_id) continue;
@@ -2226,54 +2213,55 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
 
                         const buffer = await tg.downloadMedia(match);
                         if (!buffer) {
-                             this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
                                 crypto.randomUUID(), "DEBUG_DIGEST", `❌ Failed to download PDF buffer for ${item.source_name}`, Date.now());
-                             continue;
+                            continue;
                         }
 
                         let allSignals: any[] = [];
                         const fileSizeMB = Math.round(buffer.byteLength / 1024 / 1024);
 
-                        // Strategy: Chunking for Large Files (>15MB) or Direct for Small
+                        // Strategy: Aggressive Chunking for Maximum Signal Density
+                        // Always chunk to ensure we catch every article in dense newspapers at 3 pages/chunk
                         let chunks: { buffer: Uint8Array, startPage: number, endPage: number }[] = [];
-                        
-                        if (fileSizeMB > 15) {
+
+                        this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                            crypto.randomUUID(), "DEBUG_DIGEST", `📚 Splitting PDF (${fileSizeMB} MB) into 3-page chunks for deep extraction...`, Date.now());
+
+                        try {
+                            chunks = await this.splitPdf(buffer, 3); // 3 pages per chunk for high density
+                        } catch (e: any) {
                             this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                                crypto.randomUUID(), "DEBUG_DIGEST", `📚 splitting large PDF (${fileSizeMB} MB) into chunks...`, Date.now());
-                            try {
-                                chunks = await this.splitPdf(buffer, 10); // 10 pages per chunk
-                            } catch (e: any) {
-                                this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                                    crypto.randomUUID(), "DEBUG_DIGEST", `❌ Split failed: ${e.message}`, Date.now());
-                                continue;
-                            }
-                        } else {
-                            chunks = [{ buffer: new Uint8Array(buffer), startPage: 1, endPage: 1000 }]; // Assume full doc if small
+                                crypto.randomUUID(), "DEBUG_DIGEST", `❌ Split failed: ${e.message}`, Date.now());
+                            // Fallback to single chunk if split fails
+                            chunks = [{ buffer: new Uint8Array(buffer), startPage: 1, endPage: 1000 }];
                         }
 
                         this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
                             crypto.randomUUID(), "DEBUG_DIGEST", `🚀 Processing ${chunks.length} chunks...`, Date.now());
 
+                        // Deduplication Map (Summary -> Signal)
+                        const uniqueSignals = new Map<string, any>();
+
                         for (let i = 0; i < chunks.length; i++) {
                             const chunk = chunks[i];
                             const chunkBuffer = chunk.buffer;
                             const chunkNum = i + 1;
-                            
+
                             let markdown: string | null = null;
                             try {
                                 const blob = new Blob([chunkBuffer], { type: 'application/pdf' });
                                 const mdResult = await (this.env.AI as any).toMarkdown({ blob });
                                 if (mdResult?.text) markdown = mdResult.text;
                                 else if (mdResult?.data) markdown = mdResult.data;
-                            } catch (e) { /* ignore toMarkdown failure, fall to multimodal */ }
+                            } catch (e) { /* ignore failure */ }
 
                             let parts: any[] = [];
                             if (markdown) {
                                 parts = [{ text: `PART ${chunkNum}/${chunks.length} of Newspaper (Pages ${chunk.startPage}-${chunk.endPage}). Extract investment signals/articles from this PART (Markdown):\n\n${markdown}` }];
                             } else {
-                                // Multimodal Fallback for Chunk
                                 let binary = '';
-                                const bytes = chunkBuffer; // already Uint8Array
+                                const bytes = chunkBuffer;
                                 for (let j = 0; j < bytes.byteLength; j += 32768) {
                                     binary += String.fromCharCode(...bytes.subarray(j, j + 32768));
                                 }
@@ -2283,9 +2271,9 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
                                 ];
                             }
 
-                            // 15-30 signals expectation per whole paper, so maybe 3-5 per chunk
-                            parts[parts.length - 1].text += `\n\nExtract DISTINCT investment signals. Return as JSON array.\n` +
-                                                            `CRITICAL: When verifying facts, you MUST cite the specific page number if found, e.g. "Net Income up 20% (Page ${chunk.startPage + 2})."`;
+                            parts[parts.length - 1].text += `\n\nTask: Extract EVERY distinct investment signal, market move, or corporate event on these pages. Do not summarize the whole chunk; list individual items.\n` +
+                                `Aim for 5-10 distinct signals per 3-page chunk if the content supports it.\n` +
+                                `CRITICAL: When verifying facts, you MUST cite the specific page number if found, e.g. "Net Income up 20% (Page ${chunk.startPage + 2})."`;
 
                             try {
                                 const response = await fetch(
@@ -2303,13 +2291,47 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
                                 if (response.ok) {
                                     const resStr = await response.text();
                                     const resJson = JSON.parse(resStr) as any;
-                                    const outText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
+                                    let outText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
                                     if (outText) {
+                                        outText = outText.replace(/```json/g, '').replace(/```/g, '').trim();
                                         const chunkSignals = JSON.parse(outText);
+
                                         if (Array.isArray(chunkSignals)) {
-                                             allSignals.push(...chunkSignals);
-                                             this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                                                crypto.randomUUID(), "DEBUG_DIGEST", `✅ Chunk ${chunkNum}: Extracted ${chunkSignals.length} signals`, Date.now());
+                                            let newSignalsCount = 0;
+
+                                            for (const signal of chunkSignals) {
+                                                const key = (signal.summary || "").substring(0, 50).toLowerCase();
+
+                                                if (!uniqueSignals.has(key)) {
+                                                    uniqueSignals.set(key, signal);
+                                                    newSignalsCount++;
+
+                                                    // IMMEDIATE MIRRORING: Process signals as they arrive
+                                                    if (signal.relevance_score > 40) {
+                                                        // Fire and forget notification (don't await to block loop?) 
+                                                        // Actually safe to await, mirroring is fast.
+                                                        await this.notifySignal(signal, item.source_id, item.source_name);
+
+                                                        if (signal.relevance_score > 80) {
+                                                            await this.mirrorSignal(signal, item.source_id, item.source_name);
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                                                crypto.randomUUID(), "DEBUG_DIGEST", `✅ Chunk ${chunkNum}: Extracted ${chunkSignals.length} items (${newSignalsCount} unique so far)`, Date.now());
+
+                                            // Incremental Save
+                                            const currentSignalsList = Array.from(uniqueSignals.values());
+                                            const incrementalDebugInfo = JSON.stringify({
+                                                batch_processed: true,
+                                                analysis: currentSignalsList,
+                                                pdf_processed: false, // In progress
+                                                signal_count: currentSignalsList.length,
+                                                timestamp: Date.now()
+                                            });
+                                            this.ctx.storage.sql.exec("UPDATE content_items SET processed_json = ? WHERE id = ?", incrementalDebugInfo, item.id);
                                         }
                                     }
                                 }
@@ -2318,34 +2340,14 @@ Constraint: Ignore ads, lifestyle, and irrelevance. Only extract ALPHA.
                             }
                         }
 
-                        // Deduplicate signals by summary/content
-                        const uniqueSignals = new Map<string, any>();
-                        for (const s of allSignals) {
-                             const key = (s.summary || "").substring(0, 50).toLowerCase();
-                             if (!uniqueSignals.has(key)) uniqueSignals.set(key, s);
-                        }
+                        // Final Save
                         const finalSignals = Array.from(uniqueSignals.values());
+                        this.ctx.storage.sql.exec("UPDATE content_items SET processed_json = ? WHERE id = ?",
+                            JSON.stringify({ pdf_processed: true, signal_count: finalSignals.length, analysis: finalSignals, timestamp: Date.now() }), item.id);
 
-                        if (finalSignals.length > 0) {
-                            this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                                crypto.randomUUID(), "DEBUG_DIGEST", `✨ Total Extracted: ${finalSignals.length} unique signals.`, Date.now());
+                        this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
+                            crypto.randomUUID(), "DEBUG_DIGEST", `✨ Finished Processing. ${finalSignals.length} unique signals total.`, Date.now());
 
-                            console.log(`[ContentRefinery] Extracted ${finalSignals.length} signals total.`);
-
-                            for (const signal of finalSignals) {
-                                if (signal.relevance_score > 40) {
-                                    await this.notifySignal(signal, item.source_id, item.source_name);
-                                    if (signal.relevance_score > 80) {
-                                        await this.mirrorSignal(signal, item.source_id, item.source_name);
-                                    }
-                                }
-                            }
-
-                            this.ctx.storage.sql.exec("UPDATE content_items SET processed_json = ? WHERE id = ?", JSON.stringify({ pdf_processed: true, signal_count: finalSignals.length }), item.id);
-                        } else {
-                             this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
-                                crypto.randomUUID(), "DEBUG_DIGEST", `⚠️ No signals extracted from ${item.source_name}`, Date.now());
-                        }
                     } else {
                         this.ctx.storage.sql.exec("INSERT INTO internal_errors (id, module, message, created_at) VALUES (?, ?, ?, ?)",
                             crypto.randomUUID(), "DEBUG_DIGEST", `⚠️ Message found but no PDF media in it for ${item.source_name}`, Date.now());
