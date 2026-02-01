@@ -8,8 +8,6 @@ routes = [
     { pattern = "api.moecapital.com/*", zone_name = "moecapital.com" }
 ]
 
-[triggers]
-crons = ["*/5 * * * *", "0 5 * * *", "0 17 * * *"]
 
 [observability]
 enabled = true
@@ -36,3 +34,6 @@ binding = "AI"
 # TELEGRAM_BOT_TOKEN = "..." (set via secret)
 # GEMINI_API_KEY = "..." (set via secret)
 # BOARD_DO_URL = "..." (set via secret)
+ADMIN_CHANNEL_ID = "8535398633"
+# ALPHA_CHANNEL_ID = "-1003589267081" (optional override)
+# BETA_CHANNEL_ID = "-1001887626501" (set via secret)

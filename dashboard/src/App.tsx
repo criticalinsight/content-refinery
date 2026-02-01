@@ -8,7 +8,9 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-const API_BASE = 'https://api.moecapital.com';
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? ''
+  : 'https://api.moecapital.com';
 
 interface ContentItem {
   id: string;
@@ -1043,7 +1045,11 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const ws = new WebSocket('wss://api.moecapital.com/ws');
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      ? window.location.host
+      : 'api.moecapital.com';
+    const ws = new WebSocket(`${protocol}//${host}/ws`);
 
     ws.onopen = () => setStatus('online');
     ws.onclose = () => setStatus('offline');

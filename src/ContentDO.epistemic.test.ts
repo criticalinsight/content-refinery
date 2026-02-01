@@ -16,16 +16,14 @@ vi.mock('cloudflare:workers', () => {
     };
 });
 
-// Mock TelegramManager
+// Mock TelegramCollector
 const mockSendMessage = vi.fn();
-vi.mock('./telegram', () => {
+vi.mock('./collectors/TelegramCollector', () => {
     return {
-        TelegramManager: vi.fn().mockImplementation(() => ({
-            connect: vi.fn().mockResolvedValue('test-session'),
-            isLoggedIn: vi.fn().mockResolvedValue(true),
+        TelegramCollector: vi.fn().mockImplementation(() => ({
+            handleUpdate: vi.fn(),
             sendMessage: mockSendMessage,
-            listen: vi.fn(),
-            getClient: vi.fn().mockReturnValue({ connected: true })
+            downloadMedia: vi.fn().mockResolvedValue(new Uint8Array())
         }))
     };
 });
@@ -35,12 +33,12 @@ vi.mock('./utils/rss', () => ({ fetchAndParseRSS: vi.fn() }));
 
 // Mock fetch for Gemini API
 const globalFetch = vi.fn();
-global.fetch = globalFetch;
+vi.stubGlobal('fetch', globalFetch);
 
 const mockEnv = {
     GEMINI_API_KEY: 'test-key',
-    TELEGRAM_API_ID: '123',
-    TELEGRAM_API_HASH: 'hash'
+    TELEGRAM_BOT_TOKEN: 'test-token',
+    ADMIN_CHANNEL_ID: 'admin-id'
 };
 
 describe('ContentDO Epistemic & Buttons', () => {
@@ -73,21 +71,18 @@ describe('ContentDO Epistemic & Buttons', () => {
 
             // Mock Gemini response
             globalFetch.mockResolvedValue({
+                ok: true,
                 json: async () => ({ candidates: [{ content: { parts: [{ text: 'Fact Check Result' }] } }] })
             });
 
             // Trigger callback via handleIngestInternal logic or direct internal method access
-            // Since handleCallback is private, we can simulate the "CALLBACK:chk:123" message flow via handleIngestInternal
-            await contentDO.fetch(new Request('https://api/ingest', {
-                method: 'POST',
-                body: JSON.stringify({
-                    chatId: '999',
-                    messageId: 1,
-                    text: 'CALLBACK:chk:123',
-                    title: 'Test',
-                    date: 123
-                })
-            }));
+            await (contentDO as any).handleIngestInternal({
+                chatId: '999',
+                messageId: 1,
+                text: 'CALLBACK:chk:123',
+                title: 'Test',
+                date: 123
+            });
 
             // Verify loading message
             expect(mockSendMessage).toHaveBeenCalledWith('999', expect.stringContaining('Running <b>🔎 FACT CHECK'));
@@ -107,46 +102,41 @@ describe('ContentDO Epistemic & Buttons', () => {
         test('routes "syn" (Synthesis) correctly', async () => {
             mockSqlExec.mockReturnValue({ toArray: () => [{ id: '123', raw_text: 'Test Content' }] });
             globalFetch.mockResolvedValue({
+                ok: true,
                 json: async () => ({ candidates: [{ content: { parts: [{ text: 'Synthesis Result' }] } }] })
             });
 
-            await contentDO.fetch(new Request('https://api/ingest', {
-                method: 'POST',
-                body: JSON.stringify({ chatId: '999', messageId: 1, text: 'CALLBACK:syn:123', title: 'Test', date: 123 })
-            }));
+            await (contentDO as any).handleIngestInternal({ chatId: '999', messageId: 1, text: 'CALLBACK:syn:123', title: 'Test', date: 123 });
 
             expect(mockSendMessage).toHaveBeenCalledWith('999', expect.stringContaining('Running <b>⚡ SYNTHESIS'));
             expect(globalFetch).toHaveBeenCalledWith(
                 expect.stringContaining('generativelanguage.googleapis.com'),
                 expect.objectContaining({ body: expect.stringContaining('Portfolio Manager') })
             );
+            expect(mockSendMessage).toHaveBeenCalledWith('999', expect.stringContaining('Synthesis Result'));
         });
 
         test('routes "div" (Deep Dive) correctly', async () => {
             mockSqlExec.mockReturnValue({ toArray: () => [{ id: '123', raw_text: 'Test Content' }] });
             globalFetch.mockResolvedValue({
+                ok: true,
                 json: async () => ({ candidates: [{ content: { parts: [{ text: 'Deep Dive Result' }] } }] })
             });
 
-            await contentDO.fetch(new Request('https://api/ingest', {
-                method: 'POST',
-                body: JSON.stringify({ chatId: '999', messageId: 1, text: 'CALLBACK:div:123', title: 'Test', date: 123 })
-            }));
+            await (contentDO as any).handleIngestInternal({ chatId: '999', messageId: 1, text: 'CALLBACK:div:123', title: 'Test', date: 123 });
 
             expect(mockSendMessage).toHaveBeenCalledWith('999', expect.stringContaining('Running <b>🧠 DEEP DIVE'));
             expect(globalFetch).toHaveBeenCalledWith(
                 expect.stringContaining('generativelanguage.googleapis.com'),
                 expect.objectContaining({ body: expect.stringContaining('Epistemic Analyst') })
             );
+            expect(mockSendMessage).toHaveBeenCalledWith('999', expect.stringContaining('Deep Dive Result'));
         });
 
         test('handles invalid/expired signal ID', async () => {
             mockSqlExec.mockReturnValue({ toArray: () => [] }); // No result
 
-            await contentDO.fetch(new Request('https://api/ingest', {
-                method: 'POST',
-                body: JSON.stringify({ chatId: '999', messageId: 1, text: 'CALLBACK:chk:999', title: 'Test', date: 123 })
-            }));
+            await (contentDO as any).handleIngestInternal({ chatId: '999', messageId: 1, text: 'CALLBACK:chk:999', title: 'Test', date: 123 });
 
             expect(mockSendMessage).toHaveBeenCalledWith('999', '❌ Signal not found or expired.');
         });

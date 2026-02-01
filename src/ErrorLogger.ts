@@ -13,30 +13,33 @@ export class ErrorLogger {
         this.onCriticalError = callback;
     }
 
-    async log(module: string, error: any, context?: any) {
+    async log(module: string, message: any, context?: any) {
+        return this.logState(module, message, context);
+    }
+
+    async logState(module: string, message: any, context?: any) {
+        const msgStr = typeof message === 'string' ? message : (message instanceof Error ? message.message : JSON.stringify(message));
         const id = crypto.randomUUID();
-        const message = error instanceof Error ? error.message : String(error);
-        const stack = error instanceof Error ? error.stack : '';
         const timestamp = Date.now();
 
-        console.error(`[${module}] Error: ${message}`, { context, stack });
-
-        if (this.onCriticalError) {
-            this.onCriticalError(module, message).catch(() => { });
-        }
+        console.log(`[${module}] STATE: ${msgStr}`, context);
 
         try {
             this.storage.sql.exec(
-                'INSERT INTO internal_errors (id, module, message, stack, context, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+                'INSERT INTO internal_errors (id, module, message, context, created_at) VALUES (?, ?, ?, ?, ?)',
                 id,
                 module,
-                message,
-                stack,
+                msgStr,
                 context ? JSON.stringify(context) : null,
                 timestamp
             );
         } catch (e) {
-            console.error("Critical: Failed to log error to database", e);
+            console.error("Critical: Failed to log state to database", e);
+        }
+
+        // Trigger notification for critical errors if it's an actual error message or score is high
+        if (this.onCriticalError && (module === 'ERROR' || module === 'CRITICAL')) {
+            await this.onCriticalError(module, msgStr);
         }
     }
 }

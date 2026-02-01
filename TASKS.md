@@ -1,11 +1,18 @@
 - [x] verify ralph-nano installation
 - [x] Decomplection Phase A: Logic Extraction
-    - [x] Create directory structure (`src/api`, `src/collectors`)
-    - [x] Implement `FactStore.ts`
-    - [x] Implement `Router.ts`
-    - [x] Implement `TelegramCollector.ts`
-    - [x] Refactor `ContentDO.ts` to use new modules
+  - [x] Create directory structure (`src/api`, `src/collectors`)
+  - [x] Implement `FactStore.ts`
+  - [x] Implement `Router.ts`
+  - [x] Implement `TelegramCollector.ts`
+  - [x] Refactor `ContentDO.ts` to use new modules
 - [x] Decomplection Phase B: Data-Orientation
-    - [x] Define strict `Signal` and `Entity` types
-    - [x] Update `FactStore` with type safety
-    - [x] Refactor `ContentDO` to use strict types
+  - [x] Define strict `Signal` and `Entity` types
+  - [x] Update `FactStore` with type safety
+  - [x] Refactor `ContentDO` to use strict types
+- [x] Perform automated dependency check and upgrade
+- [x] Update project documentation (PRD, Architecture, Roadmap)
+- [x] Resource Optimization Roadmap
+  - [x] Phase 1: Heartbeat & PageRank Throttling
+  - [x] Phase 2: Analysis Deduplication (Content Hashing)
+  - [x] Phase 4: Telegram Bot API Refactor (Webhooks)
+  - [x] Phase 4.1: Granular Multi-Signal Extraction

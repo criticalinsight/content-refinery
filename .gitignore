@@ -1,3 +1,20 @@
+node_modules/
+dashboard/dist/
+.gemini/
 
 # Ralph Agent Data
 .ralph/
+
+# Sly Agent Data
+.sly/
+.agent/
+
+# Logs & Temp
+*.log
+coverage/
+.wrangler/
+dist/
+
+# Locks
+bun.lock
+package-lock.json

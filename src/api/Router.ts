@@ -1,47 +1,55 @@
 import { FactStore } from '../FactStore';
 import { Env } from '../types';
+import { SignalService } from './SignalService';
+import { AdminService } from './AdminService';
+import { KnowledgeService } from './KnowledgeService';
+import { PredictiveService } from './PredictiveService';
 
-/**
- * Router handles the unentanglement of API concerns from the core DO.
- * It is stateless and acts as a dispatcher for incoming HTTP requests.
- */
 export class Router {
-    constructor(private store: FactStore, private env: Env) { }
+    private signals: SignalService;
+    private admin: AdminService;
+    private knowledge: KnowledgeService;
+    private predictive: PredictiveService;
 
-    async handle(request: Request): Promise<Response> {
+    constructor(private store: FactStore, private env: Env, private storage: DurableObjectStorage, private orchestrator: any) {
+        this.signals = new SignalService(store, env, storage);
+        this.admin = new AdminService(store, env, storage, orchestrator);
+        this.knowledge = new KnowledgeService(store, env, storage);
+        this.predictive = new PredictiveService(storage);
+    }
+
+    async handle(request: Request, ctx: {
+        getCache: (t: 'signal' | 'narrative') => any,
+        setCache: (t: 'signal' | 'narrative', d: any) => void,
+        generateEmbeddings: (t: string) => Promise<number[] | null>
+    }): Promise<Response> {
         const url = new URL(request.url);
 
         // Dispatch to optimized handlers
+        if (url.pathname.startsWith('/admin')) {
+            return this.admin.dispatch(request, url);
+        }
+
         if (url.pathname === '/health' || url.pathname === '/stats') {
-            return this.handleHealth();
+            return this.admin.dispatch(request, url);
         }
 
-        if (url.pathname.startsWith('/signals')) {
-            return this.handleSignals(url);
+        if (url.pathname.startsWith('/signals') || url.pathname.startsWith('/search')) {
+            return this.signals.handleSearch(url, { generateEmbeddings: ctx.generateEmbeddings });
         }
 
-        if (url.pathname.startsWith('/analytics')) {
-            return this.handleAnalytics(url);
+        if (url.pathname.startsWith('/graph') || url.pathname.startsWith('/knowledge') || url.pathname.startsWith('/alpha') || url.pathname.startsWith('/narratives')) {
+            return this.knowledge.dispatch(request, url, {
+                getCache: ctx.getCache,
+                setCache: ctx.setCache
+            });
+        }
+
+        if (url.pathname.startsWith('/predictive') || url.pathname.startsWith('/metrics') || url.pathname.startsWith('/predictions') || url.pathname.startsWith('/backtest')) {
+            return this.predictive.dispatch(request, url);
         }
 
         // Return 404 for unhandled paths (to be delegated back to DO for now)
         return new Response('Not Found', { status: 404 });
-    }
-
-    private handleHealth(): Response {
-        return Response.json({ status: 'online', engine: 'Refinery v2.0' });
-    }
-
-    private handleSignals(url: URL): Response {
-        const limit = parseInt(url.searchParams.get('limit') || '50');
-        const offset = parseInt(url.searchParams.get('offset') || '0');
-
-        const signals = this.store.listSignals(limit, offset);
-        return Response.json({ success: true, signals });
-    }
-
-    private handleAnalytics(url: URL): Response {
-        // Daily signal volume (last 30 days) placeholder
-        return Response.json({ success: true, message: "Analytics handled by Router" });
     }
 }

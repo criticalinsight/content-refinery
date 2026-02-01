@@ -34,10 +34,17 @@ export default {
 
         // Simple health check
         if (url.pathname === '/' || url.pathname === '/health') {
-            return new Response('Content Refinery Active', {
+            return new Response('Content Refinery Active [v1.7.5]', {
                 status: 200,
                 headers: corsHeaders
             });
+        }
+
+        // Telegram Webhook (Phase 4)
+        if (url.pathname === '/telegram-webhook') {
+            const id = env.CONTENT_DO.idFromName('default');
+            const stub = env.CONTENT_DO.get(id);
+            return stub.fetch(request);
         }
 
         // Forward refinery routes to ContentDO
@@ -52,18 +59,5 @@ export default {
         // Proxy the request to the Durable Object and add CORS headers
         const response = await stub.fetch(request);
         return addCorsHeaders(response);
-    },
-
-    /**
-     * Phase 16: Cron Trigger
-     * Forwards cron events to ContentDO for scheduled briefings.
-     */
-    async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-        const id = env.CONTENT_DO.idFromName('default');
-        const stub = env.CONTENT_DO.get(id);
-        await stub.fetch(new Request('http://internal/scheduled', {
-            method: 'POST',
-            body: JSON.stringify({ cron: event.cron })
-        }));
     }
 };

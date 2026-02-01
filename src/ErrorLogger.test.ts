@@ -22,7 +22,6 @@ describe('ErrorLogger', () => {
             expect.any(String),
             'TestModule',
             'Something went wrong',
-            '',
             null,
             expect.any(Number)
         );
@@ -37,7 +36,6 @@ describe('ErrorLogger', () => {
             expect.any(String),
             'Database',
             'Database connection failed',
-            expect.stringContaining('Error: Database connection failed'),
             JSON.stringify({ retry: true }),
             expect.any(Number)
         );

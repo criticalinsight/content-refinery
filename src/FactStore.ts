@@ -1,4 +1,3 @@
-import { DurableObjectStorage } from 'cloudflare:workers';
 import { ContentItem } from './types';
 
 /**
@@ -16,8 +15,8 @@ export class FactStore {
         const sql = `
             INSERT OR REPLACE INTO content_items (
                 id, source_id, source_name, raw_text, processed_json, 
-                sentiment, is_signal, created_at, content_hash, tags
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                sentiment, is_signal, created_at, content_hash, tags, last_analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
         this.storage.sql.exec(
@@ -31,8 +30,23 @@ export class FactStore {
             item.is_signal || 0,
             item.created_at || Date.now(),
             item.metadata?.content_hash || null,
-            item.metadata?.tags ? JSON.stringify(item.metadata.tags) : null
+            item.metadata?.tags ? JSON.stringify(item.metadata.tags) : null,
+            item.last_analyzed_at || null
         );
+    }
+
+    /**
+     * Checks for recent (24h) analysis of identical content.
+     */
+    getRecentAnalysisByHash(hash: string): any | null {
+        const cutoff = Date.now() - (24 * 60 * 60 * 1000);
+        const row = this.storage.sql.exec(
+            'SELECT processed_json FROM content_items WHERE content_hash = ? AND processed_json IS NOT NULL AND last_analyzed_at > ? LIMIT 1',
+            hash,
+            cutoff
+        ).toArray()[0] as any;
+
+        return row ? JSON.parse(row.processed_json) : null;
     }
 
     /**
@@ -48,7 +62,8 @@ export class FactStore {
             metadata: {
                 content_hash: row.content_hash,
                 tags: row.tags ? JSON.parse(row.tags) : []
-            }
+            },
+            last_analyzed_at: row.last_analyzed_at
         };
     }
 
@@ -80,5 +95,22 @@ export class FactStore {
             context ? JSON.stringify(context) : null,
             Date.now()
         );
+    }
+
+    /**
+     * Aggregates system metrics for the /status command.
+     */
+    getStats(): { items: number, signals: number, channels: number } {
+        const totalItems = (this.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items').toArray()[0] as any)?.cnt || 0;
+        const signals = (this.storage.sql.exec('SELECT COUNT(*) as cnt FROM content_items WHERE is_signal = 1').toArray()[0] as any)?.cnt || 0;
+        const channels = (this.storage.sql.exec('SELECT COUNT(*) as cnt FROM channels').toArray()[0] as any)?.cnt || 0;
+        return { items: totalItems, signals, channels };
+    }
+
+    /**
+     * Removes a channel from the watch list.
+     */
+    deleteChannel(id: string) {
+        this.storage.sql.exec('DELETE FROM channels WHERE id = ?', id);
     }
 }

@@ -20,7 +20,7 @@ Transition the Content Refinery from a "signal extractor" to an "intelligence hu
     2. Query **Vectorize** for similar historical signals.
     3. Query **Graphiti** for first and second-degree relational target impacts.
     4. Synthesize a "Predictive Score" (0-100) using Gemini.
-- **Trigger**: Automatically triggered by `ContentDO` after a high-relevance signal is confirmed.
+- **Trigger**: Automatically triggered by `ContentDO` after a high-relevance signal is confirmed. Uses **Gemini 2.5 Flash** for final synthesis.
 
 ### B. Institutional Dashboard (Antigravity Dashboard)
 - **Framework**: Vite + React + Tailwind + Lucide Icons.

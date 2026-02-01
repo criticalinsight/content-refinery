@@ -1,30 +1,32 @@
 # Content Refinery - Telegram Roadmap
 
-**Current Version:** 2.1 (Epistemic Engine)  
+**Current Version:** 4.0 (Resource Optimized)  
 **Vision:** Telegram-First Market Intelligence  
-**Last Updated:** 2026-01-20
+**Last Updated:** 2026-02-01
 
 ---
 
 ## 🚀 Phase 16: Deep Telegram Integration ✅
+
 *Objective: Make Telegram the primary command center for the Refinery.*
 
-2. [x] **Daily Briefing Agent**: Scheduled cron job to generate AM/PM summaries sent to https://t.me/highsignalalpha (ID: -1003589267081).
+1. [x] **Daily Briefing Agent**: Scheduled cron job to generate AM/PM summaries sent to <https://t.me/highsignalalpha> (ID: -1003589267081).
     - Sends a 'Alpha' digest to the user's DM at 5:00 AM and 5PM.
     - Includes 'Top 5 Narratives' and 'Market Sentiment'.
-3. [x] **Signal Mirroring (Userbot)**:
-    - Auto-forward signals with `score > 8.0` to  https://t.me/highsignalalpha (ID: -1003589267081).
+2. [x] **Signal Mirroring (Userbot)**:
+    - Auto-forward signals with `score > 8.0` to  <https://t.me/highsignalalpha> (ID: -1003589267081).
     - Allows the user to receive push alerts only for 'God Tier' alpha.
-7. [x] **Admin Alerts**:
+3. [x] **Admin Alerts**:
     - Forward `ErrorLogger` critical failures directly to the Admin DM.
-8. [x] **Voice-to-Alpha**:
+4. [x] **Voice-to-Alpha**:
     - Automatically transcribe voice notes and ingest as market signals.
-9. [x] **Omni-Alpha (Gemini OCR)**:
+5. [x] **Omni-Alpha (Gemini OCR)**:
     - Automatically analyze photos and screenshots for market intelligence.
 
 ---
 
 ## 🧠 Phase 17: Knowledge & Visualization ✅
+
 *Objective: Turn raw signals into a structured Knowledge Graph and visualize it.*
 
 1. [x] **Relational Knowledge Graph**:
@@ -52,60 +54,56 @@
 
 ---
 
-## 🔮 Phase 18: Predictive Alpha (Next)
-*Objective: Scoring and ranking assets based on graph centrality and sentiment.*
-
-1. [ ] **Centrality Scoring**:
-    - PageRank/Eigenvector centrality on Knowledge Graph.
-    - Identify most-connected entities.
-2. [ ] **Sentiment Aggregation**:
-    - Aggregate signal sentiments per ticker/entity over time.
-    - Detect sentiment shifts and momentum.
-3. [ ] **Predictive Signals**:
-    - Generate "Conviction Scores" based on graph + sentiment.
-    - Alert on significant momentum changes.
-4. [ ] **Backtesting Framework**:
-    - Historical signal accuracy tracking.
-    - Performance reports for analyst predictions.
-
+---
 
 ---
 
+---
 
 ---
 
+---
+
+## 🧠 Phase 21: Batch Verification & Reprocessing ✅
+
+*Objective: Historical data integrity and signal recalibration.*
+
+1. [x] **Admin Reprocessing Engine**: Endpoint for batch indexing historical items.
+2. [x] **Robust Peer Resolution**: Prefix-aware MTProto resolution for historical channels.
+3. [x] **Gemini 2.5 Flash Migration**: Upgrade to latest multimodal reasoning core.
+4. [x] **Alpha Channel Sync**: Automated historical Alpha mirroring with `RETRO ALPHA` tagging.
+5. [x] **Recovery Engine**: Forced recovery of missed high-value signals (`/admin/audit/recover-missed`).
 
 ---
 
-## 🔮 Phase 19: The "Ghost" Analyst (Simulation & Logic)
-*Objective: Active reasoning and hypothesis testing.*
+## 🏗️ Phase 22: Data-Orientation & Decomplection ✅
 
-1. [ ] **Scenario Simulator**:
-    - User asks "What happens if Oil hits $100?".
-    - Bot traverses the Knowledge Graph to find 2nd and 3rd order effects on current holdings.
-2. [ ] **Thesis Stress-Test (Red Teaming)**:
-    - User posts a trade thesis.
-    - Bot acts as a "Devil's Advocate," citing specific contradictions from the signal database.
+*Objective: Simplify architectural state and enforce strict data boundaries.*
 
----
-
-## 📱 Phase 20: The "War Room" (Telegram Mini App)
-*Objective: Rich interaction without leaving the chat.*
-
-1. [ ] **Graph Explorer Mini-App**:
-    - Launch a full React-based Knowledge Graph visualization directly inside Telegram (Web App).
-    - Tap nodes to see underlying signals.
-2. [ ] **Timeline Scrubber**:
-    - Visual interface to scrub through the history of a narrative (e.g., "AI Regulation" over the last 6 months).
+1. [x] **Logic Extraction**: Move code from monolith `ContentDO` to specialized `api/` and `collectors/`.
+2. [x] **FactStore Implementation**: SQLite-first storage layer with strict `Signal` and `Entity` types.
+3. [x] **Predictive Engine Foundation**: Graph-based conviction scoring and predictive mirroring.
+4. [x] **Hardened Delivery Pipeline**: High/Low signal routing and redundant Telegram message resolution.
 
 ---
 
-## 🧠 Phase 21: Second Brain Integration
-*Objective: Your knowledge, owned by you.*
+## ⚡ Phase 24: Resource Optimization & Scale ✅
 
-1. [ ] **Obsidian/Notion Sync**:
-    - Auto-export "Verified" signals as markdown files to a user's private repo/Notion.
-    - Creates a "Daily Notes" page with the day's Alpha.
-2. [ ] **Dynamic Feed Mesh**:
-    - User adds *any* RSS/Substack URL via chat command `/monitor <url>`.
-    - Refinery ingests it as a new high-priority source.
+*Objective: Sustainable growth and cost-efficient intelligence.*
+
+1. [x] **Stateless Telegram Bridge**: Transition to Bot API webhooks for improved reliability.
+2. [x] **Elastic Heartbeat**: Exponential backoff in Durable Object alarms to save compute.
+3. [x] **LLM Cost Reduction**: Analysis deduplication via 24h content hashing.
+4. [x] **Granular Synthesis**: De-interleaving multiple market ideas from single batches.
+5. [x] **PageRank Throttling**: Execution-gate for centrality calculations (100-node threshold).
+
+---
+
+## 📈 Phase 25: Advanced Analytics & Attribution
+
+*Objective: Deeper insights and verified signal history.*
+
+1. [ ] **Daily Analytics Report**: Generate daily PDF/Telegram reports with posted tweet analysis.
+2. [ ] **Pinned Summary Agent**: Automatically pin high-impact digests in the Alpha Channel.
+3. [ ] **Semantic Relationship Explorer**: Visual dashboard for deep-linking signals in the knowledge graph.
+4. [ ] **Entity Performance Tracking**: Correlation between signals and actual market movements.

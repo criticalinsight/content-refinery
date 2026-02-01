@@ -6,12 +6,16 @@ A Cloudflare Workers application that ingests financial news from multiple sourc
 
 ## Features
 
-- **Multi-Source Ingestion**: Telegram, RSS, Images, Voice Notes
-- **AI Analysis**: Gemini 2.0 Flash for signal extraction and validation
-- **Epistemic Engine**: Rigorous fact-checking with source hierarchy
-- **Knowledge Graph**: Entity relationship extraction and visualization
-- **Interactive Bot**: Deep activation buttons for instant analysis
-- **Vector Search**: Semantic search via Cloudflare Vectorize
+- **Multi-Source Ingestion**: Telegram (Bot API), RSS, Webhook (Discord/Slack), Images, Voice Notes.
+- **AI Analysis**: Gemini 2.5 Flash for structured signal extraction and causal validation.
+- **Resource Optimization**:
+  - **Elastic Heartbeat**: Exponential backoff doubling up to 1 hour when idle.
+  - **Analysis Deduplication**: 24h content-hash cache for $LLM cost reduction.
+  - **Granular Batch Extraction**: De-interleaving of multiple signals from batch inputs.
+- **Predictive Alpha**: Graph-based conviction scoring and forward-looking market insights.
+- **Dual-Channel Mirroring**: Automatic routing of High-Signal (Alpha) vs. Low-Signal (Beta) content.
+- **Interactive Bot**: Deep activation buttons (`🔎 Fact Check`, `⚡ Synthesis`, `🧠 Deep Dive`).
+- **Vector Search**: Semantic search via Cloudflare Vectorize.
 
 ## Quick Start
 
@@ -42,7 +46,7 @@ npm run deploy
 ## Stack
 
 - **Runtime**: Cloudflare Workers (Durable Objects)
-- **AI**: Gemini 2.0 Flash
+- **AI**: Gemini 2.5 Flash
 - **Storage**: SQLite (DO), Vectorize
 - **Frontend**: React Dashboard
 - **Tests**: Vitest

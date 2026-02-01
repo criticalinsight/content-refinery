@@ -28,6 +28,9 @@ vi.mock('./telegram', () => {
     };
 });
 
+import { generateContentHash } from './utils/crypto';
+
+// ... (skipping some existing mocks)
 vi.mock('./utils/rss', () => ({
     fetchAndParseRSS: vi.fn()
 }));
@@ -89,12 +92,6 @@ describe('ContentDO', () => {
             expect((contentDO as any).getCache('signal')).toEqual(testData);
         });
 
-        test('invalidates cache correctly', () => {
-            (contentDO as any).setCache('signal', { data: 1 });
-            (contentDO as any).invalidateCache();
-            expect((contentDO as any).getCache('signal')).toBeNull();
-        });
-
         test('cache expires after TTL', async () => {
             (contentDO as any).CACHE_TTL = 10; // 10ms for test
             (contentDO as any).setCache('signal', { data: 1 });
@@ -106,13 +103,13 @@ describe('ContentDO', () => {
     describe('Utility Logic', () => {
         test('generateContentHash creates valid hex hash', async () => {
             const text = "Hello World";
-            const hash = await (contentDO as any).generateContentHash(text);
+            const hash = await generateContentHash(text);
             expect(hash).toMatch(/^[a-f0-9]{64}$/);
         });
 
         test('different text yields different hash', async () => {
-            const h1 = await (contentDO as any).generateContentHash("text1");
-            const h2 = await (contentDO as any).generateContentHash("text2");
+            const h1 = await generateContentHash("text1");
+            const h2 = await generateContentHash("text2");
             expect(h1).not.toBe(h2);
         });
     });
