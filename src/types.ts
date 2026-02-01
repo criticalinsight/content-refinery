@@ -4,13 +4,10 @@ export interface Env {
     AI: any; // Cloudflare AI
     GEMINI_API_KEY: string;
     TELEGRAM_BOT_TOKEN: string;
-    TELEGRAM_API_ID: string;
-    TELEGRAM_API_HASH: string;
     BOARD_DO_URL?: string; // Phase 24: New URL for the BoardDO service if separate
-    VAPID_PUBLIC_KEY: string;
-    VAPID_PRIVATE_KEY: string;
     ALPHA_CHANNEL_ID?: string; // Optional override for Alpha channel ID
     BETA_CHANNEL_ID?: string; // Optional override for Beta (Low Signal) channel ID
+    ADMIN_CHANNEL_ID?: string;
 }
 
 export interface Signal {

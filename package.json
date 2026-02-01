@@ -11,9 +11,7 @@
         "test:coverage": "vitest run --coverage"
     },
     "dependencies": {
-        "fast-xml-parser": "^5.3.3",
-        "pdf-lib": "^1.17.1",
-        "telegram": "^2.26.22"
+        "fast-xml-parser": "^5.3.3"
     },
     "devDependencies": {
         "@cloudflare/vitest-pool-workers": "^0.12.4",
