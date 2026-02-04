@@ -24,12 +24,7 @@ Return an array of objects with these keys:
 - **"fact_check"**: A forensic Mungerian audit. 
   - Format: "VERIFIED: [Reality]" or "FOLLY DISPATCHED: [Specific psychological or structural trap identified]".
 
-- **"summary"**: The "Investment Case".
-  - One sentence: The asset and the "Circle of Competence" logic.
-  - One sentence: The "Moat" (structural edge) and the "Why Now" catalyst.
-  - One sentence: The Inversion (The specific fatal flaw that would kill the thesis).
-
-- **"analysis"**: Second-order thinking. How does this change the competitive landscape? Focus on the **incentive structures** and **long-term equilibrium shifts**.
+- **"analysis"**: The structural "tl;dr take". One paragraph of second-order thinking. How does this change the competitive landscape? Focus on the **incentive structures**, **moats**, and **long-term equilibrium shifts**. Include the **Inversion** (fatal flaw) within this take.
 
 - **"relevance_score"**: (0-100) Focus on durability. 80+ is a "Fat Pitch."
 - **"sentiment"**: 'bullish', 'bearish', or 'neutral'.

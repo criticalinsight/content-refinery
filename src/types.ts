@@ -10,7 +10,6 @@ export interface Env {
 
 export interface Signal {
     fact_check: string;
-    summary: string;
     analysis: string;
     relevance_score: number;
     sentiment: 'bullish' | 'bearish' | 'neutral';
