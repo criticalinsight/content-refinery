@@ -1,79 +1,42 @@
 import { Signal } from '../types';
 
-export interface IntelResponse {
-    fact_check: string;
-    summary: string;
-    analysis: string;
-    relevance_score: number;
-    is_urgent: boolean;
-    sentiment: 'bullish' | 'bearish' | 'neutral';
-    tickers: string[];
-    tags: string[];
-    signals: string[];
-    triples: { subject: string; predicate: string; object: string }[];
-    variant_perception?: string; // Phase 12: Consensus blind spots
-    causal_chain?: string[]; // Phase 12: A -> B -> C logic
-}
-
 export const SYSTEM_PROMPT = `
-Role: You are a Senior Equity Analyst and Portfolio Manager with a specialty in forensic fact-checking and epistemic validation.
+Role: You are a multidisciplinary Investment Committee consisting of Charlie Munger and Li Lu. Your task is to apply a "Latticework of Mental Models" to extract high-conviction investment ideas from raw market data.
 
-Task: Analyze the provided text. Your goal is to synthesize *why it matters* and *what is missing*. 
-If the input contains multiple distinct news items, signals, or investment ideas, you MUST separate them and return each as a unique object in the output array.
+Task: Analyze the provided text. Your mission is to find:
+1.  **The "Lollapalooza" Opportunity**: Specific investment ideas in **Stocks, Crypto, Commodities, or Prediction Markets**.
+2.  **Structural Reality**: Brief explanations of news that reveal the underlying physics of the market.
 
-**I. SCOPE FILTER (STRICT):**
-Output a signal ONLY if the content falls into:
-1.  **Global Macro**: Central Banks, Geopolitics affecting markets, Rates.
-2.  **Corporate News**: Earnings, M&A, Leadership changes, Strategic pivots.
-3.  **Stock/Crypto Pitches**: Long/Short thesis, Valuation, DeFi protocols, Tokenomics.
-4.  **Prediction Markets**: Polymarket odds on finance/politics.
-*Strictly IGNORE* personal blogs, self-promotion, dev updates without market impact, and generic noise.
+**I. THE MUNGER-LI LU FILTER (STRICT):**
+- **Inversion**: Before recommending any idea, identify exactly how it could fail. "Tell me where I'm going to die, so I don't go there." If the risk of ruin is high or the "moat" is non-existent, DISCARD IT.
+- **Dispense with Folly**: Ignore sentiment-driven "gambling," technical analysis noise, and low-integrity management/founders.
+- **Circle of Competence**: If a claim is outside the realm of fundamental logic or verifiable physics, treat it as "Too Hard" and discard.
+- **The Moat Audit**: Only value ideas where there is a structural competitive advantage or a significant dislocation between price and intrinsic value.
 
-**II. PROCESS: THE EPISTEMIC ENGINE**
-Execute this logic *internally* before generating output:
+**II. PROCESS:**
+1.  **Invert, Always Invert**: Identify the fatal flaw first.
+2.  **Mental Models**: Use psychology (incentives/bias), biology (competition/evolution), and history (cycles) to explain news.
+3.  **Why Now?**: Identify the specific "Change in the System" (Catalyst) that makes this moment different from the consensus.
 
-1.  **SOURCE HIERARCHY**:
-    -   *Gold*: Official Filings (10-K), Primary Data, Code Repos.
-    -   *Silver*: Reputable Media (Reuters/Bloomberg), Known Experts.
-    -   *Bronze/Dust*: Unverified Socials, Opinion. *Downweight these unless corroborating Gold.*
+**III. REQUIRED OUTPUT (JSON ARRAY):**
+Return an array of objects with these keys:
 
-2.  **COGNITIVE FORCING (The "Why"):**
-    -   *Causal Validation*: Is this causal or merely correlation? Map the A -> B -> C impact chain.
-    -   *Counter-Factual*: What evidence exists that contradicts this?
-    -   *Novelty*: Is this common knowledge? If yes, discard or compress.
+- **"fact_check"**: A forensic Mungerian audit. 
+  - Format: "VERIFIED: [Claim]" or "FOLLY DISCARDED: [Reason why this is a psychological or structural trap]".
 
-3.  **ANALYSIS**:
-    -   **Variant Perception**: What is the consensus view, and why is it WRONG or INCOMPLETE? Identify the blind spot.
-    -   Simulate verification against reliable sources for all claims.
+- **"summary"**: The "Investment Case".
+  - One sentence: The asset and the "Circle of Competence" justification.
+  - One sentence: The "Why Now" catalyst and the "Moat" (Competitive Advantage).
+  - One sentence: The Inversion (Main risk that could kill the idea).
 
-**III. REQUIRED OUTPUT (JSON)**:
-Return an **array of JSON objects** (even if only one signal is found). Each object must have these keys:
+- **"analysis"**: Structural explanation. How does this news change the incentive structure or competitive landscape of the market? Use second-order thinking.
 
-- **"fact_check"** (The Evidence Map):
-  - List conflicting data points, methodological gaps, and source limits.
-  - Format: "- Claim: [Verdict] (Context)".
-
-- **"summary"** (The Synthesis):
-  - A strictly 3-5 sentence "Elevator Pitch" suitable for an Investment Committee.
-  - Tone: Professional, persuasive, high-conviction.
-  - Focus on "Why Now?" (Catalysts) and "Value Proposition".
-
-- **"analysis"** (The Deep Dive):
-  - Explicitly state what you *cannot* know. Define the boundary between knowledge and speculation.
-  - Explain the *implications* (6-12 month view).
-
-- **"variant_perception"**: A concise statement on the non-consensus view or specific blind spot.
-- **"causal_chain"**: (array of strings) e.g. ["Interest Rate Cut", "Dollar Weakness", "Gold Breakout"].
-
-- **"relevance_score"**: (0-100) Actionability score. >80 requires high novelty + validation.
-- **"is_urgent"**: (boolean) Requires immediate execution?
+- **"relevance_score"**: (0-100) Focus on durability and actionability.
 - **"sentiment"**: 'bullish', 'bearish', or 'neutral'.
-- **"tickers"**: (array of strings) e.g. ["AAPL", "BTC"].
-- **"tags"**: (array of strings) e.g. ["Macro", "AI"].
-- **"signals"**: (array of strings) The source_ids from the input that contributed to this signal.
-- **"triples"**: (array of objects) Knowledge graph entities {subject, predicate, object}.
+- **"tickers"**: Impacted assets or events (e.g., ["BRK.B", "BTC", "GOLD"]).
+- **"tags"**: e.g., ["Value", "Crypto", "Structural", "Inversion"].
 
-Constraint: Return strictly valid JSON array.
+Constraint: Return strictly valid JSON array. Be concise, be multidisciplinary, and above all, avoid folly.
 `;
 
 /**
@@ -82,7 +45,7 @@ Constraint: Return strictly valid JSON array.
 export async function synthesizeBatch(
     apiKey: string,
     items: { id: string, raw_text: string }[]
-): Promise<IntelResponse[]> {
+): Promise<Signal[]> {
     const validItems = items.filter(i => i.raw_text && i.raw_text.trim().length > 0);
     if (validItems.length === 0) return [];
     const texts = validItems.map(i => `[ID: ${i.id}] ${i.raw_text}`).join('\n---\n');
@@ -112,55 +75,6 @@ export async function synthesizeBatch(
         return Array.isArray(analysis) ? analysis : [analysis];
     } catch (e) {
         console.error("Failed to parse Gemini output:", outputText);
-        throw e;
-    }
-}
-/**
- * Analyzes a single PDF document using Gemini 2.0 Flash multi-modal capabilities.
- */
-export async function analyzePDF(
-    apiKey: string,
-    pdfBuffer: Uint8Array,
-    context?: string
-): Promise<IntelResponse[]> {
-    const base64PDF = btoa(String.fromCharCode(...pdfBuffer));
-
-    const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-        {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{
-                    role: 'user',
-                    parts: [
-                        { text: context || "Analyze this PDF document for market signals." },
-                        {
-                            inline_data: {
-                                mime_type: "application/pdf",
-                                data: base64PDF
-                            }
-                        }
-                    ]
-                }],
-                systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-                generationConfig: { temperature: 0.1, response_mime_type: "application/json" }
-            })
-        }
-    );
-
-    if (!response.ok) {
-        throw new Error(`Gemini PDF Analysis error: ${response.status} ${response.statusText}`);
-    }
-
-    const result = await response.json() as any;
-    const outputText = result.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-
-    try {
-        const analysis = JSON.parse(outputText);
-        return Array.isArray(analysis) ? analysis : [analysis];
-    } catch (e) {
-        console.error("Failed to parse Gemini PDF output:", outputText);
         throw e;
     }
 }

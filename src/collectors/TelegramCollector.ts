@@ -1,11 +1,10 @@
-import { TelegramBotCollector } from '../logic/TelegramBotCollector';
 import { Env } from '../types';
 import { FactStore } from '../FactStore';
 import { ErrorLogger } from '../ErrorLogger';
 
 /**
  * TelegramCollector handles the Telegram Bot API bridge.
- * Transitioned from MTProto (GramJS) to Bot API for reliability and efficiency.
+ * Simplified to use direct fetch calls for the Alpha Pipe.
  */
 export class TelegramCollector {
     constructor(
@@ -14,7 +13,6 @@ export class TelegramCollector {
         private store: FactStore,
         private logger: ErrorLogger
     ) {
-        // Initialize notify callback to use Bot API
         this.logger.setNotifyCallback(async (module, message) => {
             if (!this.env.TELEGRAM_BOT_TOKEN || !this.env.ADMIN_CHANNEL_ID) return;
             const alertMsg = `🚨 <b>SYSTEM ALERT</b>\n<b>Module:</b> ${module}\n<b>Error:</b> ${message}`;
@@ -23,22 +21,31 @@ export class TelegramCollector {
     }
 
     async handleUpdate(update: any, onMessage: (msg: any) => Promise<void>) {
-        const ingestRequest = TelegramBotCollector.parseUpdate(update);
-        if (ingestRequest) {
-            await onMessage(ingestRequest);
-        }
+        const message = update.message || update.channel_post;
+        if (!message || !message.text) return;
+
+        await onMessage({
+            chatId: message.chat.id.toString(),
+            messageId: message.message_id.toString(),
+            text: message.text,
+            title: message.chat.title || message.from?.username || 'Telegram'
+        });
     }
 
     async sendMessage(chatId: string, text: string, buttons?: any[]) {
-        if (!this.env.TELEGRAM_BOT_TOKEN) {
-            console.error('[TelegramCollector] TELEGRAM_BOT_TOKEN missing');
-            return;
-        }
-        await TelegramBotCollector.sendMessage(this.env.TELEGRAM_BOT_TOKEN, chatId, text, buttons);
+        const token = this.env.TELEGRAM_BOT_TOKEN;
+        if (!token) return;
+
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId,
+                text: text,
+                parse_mode: 'HTML',
+                reply_markup: buttons ? { inline_keyboard: buttons } : undefined
+            })
+        });
     }
 
-    async downloadMedia(fileId: string): Promise<Uint8Array | null> {
-        if (!this.env.TELEGRAM_BOT_TOKEN) return null;
-        return await TelegramBotCollector.downloadFile(this.env.TELEGRAM_BOT_TOKEN, fileId);
-    }
 }

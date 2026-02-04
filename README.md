@@ -1,36 +1,31 @@
-# Content Refinery
+# Content Refinery: The Alpha Pipe
 
-**Telegram-First Market Intelligence Platform**
+**Distilled Telegram-to-Gemini Intelligence Conduit**
 
-A Cloudflare Workers application that ingests financial news from multiple sources, applies AI-powered analysis, and outputs actionable market signals with source attribution.
+Content Refinery (V3.0) is a simplified, high-performance Cloudflare Workers application that transforms raw Telegram noise into actionable market intelligence. It decomplects the complex ingestion process into a singular "Alpha Pipe."
+
+## Core Flow (The Pipe)
+
+1.  **Ingest**: Stateless Telegram Bot API webhook listener.
+2.  **Deduplicate**: Content-hash check via SQLite to prevent redundant processing.
+3.  **Analyze**: Munger-Li Lu "Latticework" protocol for multidisciplinary alpha extraction.
+4.  **Mirror**: Delivery of "tl;dr takes" with forensic audits and structural analysis.
 
 ## Features
 
-- **Multi-Source Ingestion**: Telegram (Bot API), RSS, Webhook (Discord/Slack), Images, Voice Notes.
-- **AI Analysis**: Gemini 2.5 Flash for structured signal extraction and causal validation.
-- **Resource Optimization**:
-  - **Elastic Heartbeat**: Exponential backoff doubling up to 1 hour when idle.
-  - **Analysis Deduplication**: 24h content-hash cache for $LLM cost reduction.
-  - **Granular Batch Extraction**: De-interleaving of multiple signals from batch inputs.
-- **Predictive Alpha**: Graph-based conviction scoring and forward-looking market insights.
-- **Dual-Channel Mirroring**: Automatic routing of High-Signal (Alpha) vs. Low-Signal (Beta) content.
-- **Interactive Bot**: Deep activation buttons (`🔎 Fact Check`, `⚡ Synthesis`, `🧠 Deep Dive`).
-- **Vector Search**: Semantic search via Cloudflare Vectorize.
+-   **Mungerian Intelligence**: AI agent embodying Charlie Munger and Li Lu—using inversion and mental models to filter folly.
+-   **Zero Accidental Complexity**: Removed auxiliary background agents and redundant storage operations.
+-   **Operation Storm Prevention**: In-memory counters and hash deduplication to minimize SQL row reads.
+-   **High-Density Output**: Minimal noise, 4000-character limited "tl;dr takes" with tickers and audit logs.
 
 ## Quick Start
 
 ```bash
-# Install dependencies
-npm install
-
 # Development
 npm run dev
 
 # Typecheck
 npm run typecheck
-
-# Test
-npm test
 
 # Deploy
 npm run deploy
@@ -38,18 +33,16 @@ npm run deploy
 
 ## Documentation
 
-- [Product Requirements](./docs/PRD.md)
-- [Roadmap](./docs/ROADMAP.md)
-- [Architecture & Design](./docs/ARCHITECTURE.md)
-- [Technical Specs](./docs/specs/)
+-   [Product Requirements](./docs/PRD.md)
+-   [Architecture & Design](./docs/ARCHITECTURE.md)
+-   [Roadmap](./docs/ROADMAP.md)
 
 ## Stack
 
-- **Runtime**: Cloudflare Workers (Durable Objects)
-- **AI**: Gemini 2.5 Flash
-- **Storage**: SQLite (DO), Vectorize
-- **Frontend**: React Dashboard
-- **Tests**: Vitest
+-   **Runtime**: Cloudflare Workers (Durable Objects)
+-   **Logic**: Alpha Pipe (TypeScript)
+-   **AI**: Gemini 2.5 Flash
+-   **Storage**: SQLite (Durable Object Storage)
 
 ## License
 

@@ -1,38 +1,21 @@
 export interface Env {
     CONTENT_DO: DurableObjectNamespace;
     VECTOR_INDEX: VectorizeIndex;
-    AI: any; // Cloudflare AI
+    AI: any;
     GEMINI_API_KEY: string;
     TELEGRAM_BOT_TOKEN: string;
-    BOARD_DO_URL?: string; // Phase 24: New URL for the BoardDO service if separate
-    ALPHA_CHANNEL_ID?: string; // Optional override for Alpha channel ID
-    BETA_CHANNEL_ID?: string; // Optional override for Beta (Low Signal) channel ID
+    ALPHA_CHANNEL_ID?: string;
     ADMIN_CHANNEL_ID?: string;
 }
 
 export interface Signal {
+    fact_check: string;
     summary: string;
+    analysis: string;
     relevance_score: number;
     sentiment: 'bullish' | 'bearish' | 'neutral';
     tickers: string[];
-    analysis: string;
-    fact_check?: string;
-    is_urgent?: boolean;
-    confidence?: number;
-    metadata?: Record<string, any>;
-}
-
-export interface Entity {
-    name: string;
-    type: 'company' | 'person' | 'location' | 'crypto';
-    sentiment: number; // -1.0 to 1.0
-}
-
-export interface Narrative {
-    title: string;
-    description: string;
-    related_signals: string[]; // Signal IDs
-    coherence_score: number;
+    tags: string[];
 }
 
 export interface ContentItem {
@@ -40,37 +23,18 @@ export interface ContentItem {
     source_id: string;
     source_name: string;
     raw_text: string;
-    processed_json?: Signal | null; // Strict typing
-    sentiment?: string;
+    processed_json?: Signal | null;
     is_signal: number;
-    retry_count: number;
-    last_error?: string;
     created_at: number;
     metadata?: {
         content_hash?: string;
         tags?: string[];
-        privacy?: 'public' | 'encrypted';
-        platform?: 'telegram' | 'rss' | 'webhook';
-        url?: string;
     };
 }
+
 export interface IngestRequest {
     chatId: string;
     messageId: string;
     title?: string;
     text: string;
-    media?: any;
-    isCallback?: boolean;
-    queryId?: string;
-    data?: string;
-}
-
-export interface Prediction {
-    id: string;
-    entity_id: string;
-    prediction_type: 'bullish' | 'bearish' | 'neutral';
-    conviction_score: number;
-    predicted_at: number;
-    outcome?: string;
-    verified_at?: number;
 }
